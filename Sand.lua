@@ -35,8 +35,8 @@ end
 
 --[[
     Author: Gpssickle! (hm5650)
-    GithHub: (https://github.com/hm5650/Sand/tree/main)
-    README: (not added yet.)
+    GithHub: https://github.com/hm5650/Sand/tree/main
+    README: https://github.com/hm5650/Sand/blob/main/README.md
     License: MIT
 ]]
 
@@ -2595,10 +2595,41 @@ local function buildUI()
     ct:Button({ Title = "Unload Sand.cc", Icon = "shredder", Justify = "Center",
         Color = Color3.fromHex("#ff4830"), Callback = function() cfg.unload() end })
 
-    local at = Tabs.about
-    at:Section({ Title = "Sand.cc", TextSize = 24 })
-    at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n\nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n\nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3", TextSize = 16 })
-
+local at = Tabs.about
+at:Section({ Title = "Sand.cc", TextSize = 24 })
+at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n\nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n\nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3", TextSize = 16 })
+at:Space()
+at:Paragraph({
+    Title = "README.md",
+    Desc = "head over to my readme plz",
+})
+at:Space()
+at:Button({
+    Title = "copy da README.md",
+    Desc = "a file to uhhhh read......",
+    Icon = "copy",
+    Justify = "Center",
+    Callback = function()
+        setclipboard("https://github.com/hm5650/Sand/blob/main/README.md")
+        notify("Sand.cc", "README.md copied!! :3")
+    end
+})
+at:Space()
+at:Paragraph({
+    Title = "Source Code",
+    Desc = "https://github.com/hm5650/Sand/tree/main",
+})
+at:Space()
+at:Button({
+    Title = "copy da Source URL",
+    Desc = "the whole repo :o",
+    Icon = "github",
+    Justify = "Center",
+    Callback = function()
+        setclipboard("https://github.com/hm5650/Sand/tree/main")
+        notify("Sand.cc", "Source URL copied!! :3")
+    end
+})
     task.defer(function()
         task.wait(0.5)
         startRNG4()
