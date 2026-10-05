@@ -692,7 +692,7 @@ defineFeature({
 
 defineFeature({
     key = "removeAtmosphere", title = "Remove Atmosphere",
-    desc = "Detaches Atmosphere objects from Lighting and Terrain (reversed on toggle off).",
+    desc = "Detaches Atmosphere objects from Lighting and Terrain",
     onInstance = function(f, inst)
         if inst:IsA("Atmosphere") then stashAndDetach(f, inst) end
     end,
@@ -834,7 +834,7 @@ defineFeature({
 
 defineFeature({
     key = "removeSurfaceAppearance", title = "Remove SurfaceAppearance",
-    desc = "Detaches PBR texture maps from parts and meshes (reversed on toggle off).",
+    desc = "Detaches PBR texture maps from parts and meshes",
     onInstance = function(f, inst)
         if inst.ClassName == "SurfaceAppearance" and not inCharacter(inst) then
             stashAndDetach(f, inst)
@@ -855,7 +855,7 @@ defineFeature({
 
 defineFeature({
     key = "destroyEmitters", title = "Remove Emitters",
-    desc = "Detaches particle emitters, trails, fire, smoke and sparkles (reversed on toggle off).",
+    desc = "Detaches particle emitters, trails, fire, smoke and sparkles",
     onInstance = function(f, inst)
         local c = inst.ClassName
         if c == "ParticleEmitter" or c == "Trail" or c == "Fire" or c == "Smoke" or c == "Sparkles" then
@@ -867,7 +867,7 @@ defineFeature({
 
 defineFeature({
     key = "removeBeams", title = "Remove Beams",
-    desc = "Detaches Beam objects (lasers, chains of light, etc) (reversed on toggle off).",
+    desc = "Detaches Beam objects (lasers, chains of light, etc)",
     onInstance = function(f, inst)
         if inst.ClassName == "Beam" and not inCharacter(inst) then
             stashAndDetach(f, inst)
@@ -911,7 +911,7 @@ defineFeature({
 
 defineFeature({
     key = "disableHighlights", title = "Disable Highlights",
-    desc = "Detaches Highlight instances from the world (reversed on toggle off).",
+    desc = "Detaches Highlight instances from the world",
     onInstance = function(f, inst)
         if inst.ClassName == "Highlight" and not inCharacter(inst) then
             stashAndDetach(f, inst)
@@ -922,7 +922,7 @@ defineFeature({
 
 defineFeature({
     key = "disableSelectionBoxes", title = "Disable Selection Boxes",
-    desc = "Detaches SelectionBox and SelectionSphere instances (reversed on toggle off).",
+    desc = "Detaches SelectionBox and SelectionSphere instances",
     onInstance = function(f, inst)
         local c = inst.ClassName
         if c == "SelectionBox" or c == "SelectionSphere" then
@@ -985,7 +985,7 @@ defineFeature({
 
 defineFeature({
     key = "removeAccessories", title = "Remove Player Accessories",
-    desc = "Detaches hats and accessories from other players (reversed on toggle off).",
+    desc = "Detaches hats and accessories from other players",
     onInstance = function(f, inst)
         if not inst:IsA("Accessory") then return end
         if inCharacter(inst) and not isLocalCharacter(inst) then
