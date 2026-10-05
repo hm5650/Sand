@@ -1,0 +1,289 @@
+*by Gpssickle! :D*
+
+<h1 align="center">Sand.cc</h1>
+
+<p align="center">
+  <img src="https://i.postimg.cc/dt65c2T9/Untitled184-20261005185058.png" alt="idk" width="300">
+</p>
+
+<p align="center">"all I can really do is give your cpu a band-aid :/"</p>
+
+*(Formerly "Optiz")*
+
+<p align="center">A lightweight optimization script that makes your game run smoother and look cleaner. Sand.cc is the lighter, lazier cousin of <b>Gravel.cc</b> :3</p>
+
+---
+
+This is the official repository for Sand.cc!
+
+Im mostly active on [YOUTUBE](https://youtube.com/@gpssickle?si=H0dugKCbTpV_yGK7) or [SCRIPTBLOX](https://scriptblox.com/u/Gpssickle) if you guys want to see my random scripts :3
+
+**Warner**: Sand.cc is still underdevelopment so elements/feats can change or become missing/unavailable & bugs can occur. Some features can break gameplay, some can't... read the descriptions before toggling :p
+
+---
+
+# Loading Sand.cc
+
+Raw Loadstring:
+
+*(Cached by GitHub.)*
+```lua
+local SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/Sand/main/Sand.lua"))({
+    createwindui = true, -- true/false         / allow creating Wind UI (you'll need to rejoin and set the boolean to 'true' and rejoin if you need to change something)
+    autoload = true, -- true/false            / allow autoloading
+    autosave = true, -- true/false           / allow autosaving
+
+    folder = "Sand.cc", -- folder used for the autosave file (default: "Sand.cc")
+    file = "autosave.json", -- filename inside the folder (default: "autosave.json")
+})
+-- you can out this in your autoexecute folder if you wanna :p
+-- also this script is underdevelopment like gravel.cc >_>
+```
+
+Sand.cc accepts a config table when you loadstring it. If you don't pass one, it falls back to `getgenv().cfg` or uses defaults.
+
+**Note:** `createwindui` is read once on execution. If you want to change it later, you'll need to rejoin and re-execute the script.
+
+---
+
+API Loadstring:
+
+*(Bypasses GitHub cache.)*
+```lua
+local a,b,c,g="/hm5650/Sand/","/Sand.lua",".github","https://"
+local d=request({Url=`{g}api{c}.com/repos{a}contents{b}`,Headers={Accept=`application/vnd{c}.VERSION.raw`}})
+if d.StatusCode~=200 then
+    d.Body=game:HttpGet(`{g}raw{c}usercontent.com{a}refs/heads/main{b}`)
+end
+local e,f=loadstring(d.Body)
+if not e then warn(f) else e() end
+```
+
+
+---
+
+# Tabs TL;DR
+
+A quick-reference of features that Sand.cc has :p
+
+---
+
+## Visuals Tab
+
+- **Gray Sky** - Replaces sky, atmosphere and clouds with a flat gray skybox
+  - Custom gray sky texture id input
+- **Full Bright** - Bright, flat lighting with global shadows off
+- **Simplify Lighting** - Soft shadows, environment lighting, fog and post-processing off
+- **Remove Fog** - Pushes fog far away so it never shows
+- **Remove Atmosphere** - Detaches Atmosphere objects from Lighting and Terrain
+- **Kill Post Effects** - Force-disables every PostEffect (bloom, DOF, sun rays, etc.)
+- **Kill Blur Only** - Disables only BlurEffect instances
+- **Kill Lighting** - Strips lighting to bare minimum (no fog, shadows, post effects)
+- **Freeze Time of Day** - Locks the clock to a fixed hour + slider
+- **Remove Grass** - Turns terrain decoration (grass) off
+- **Simplify Water** - Flattens water waves and removes reflections
+- **Low Detail Models** - Forces every Model to cheapest levelOfDetail (StreamingMesh)
+- **Smooth Plastic** - Every part (except characters) becomes SmoothPlastic with no reflectance
+- **Grey-box Props** - Parts matching keywords become flat grey and lose decals
+  - Editable keyword list (multi-line)
+- **Low Poly Meshes** - Forces lowest mesh detail (RenderFidelity: Performance) on every MeshPart
+
+---
+
+## Textures & FX Tab
+
+- **Hide Textures** - Makes decals and textures invisible (characters left alone)
+  - Keep important textures toggle
+  - Important texture keywords input
+- **Remove SurfaceAppearance** - Detaches PBR texture maps from parts and meshes
+- **Throttle Particles** - Switches particle emitters off (characters left alone)
+  - Max particle emit rate slider
+- **Remove Emitters** - Detaches ParticleEmitter, Trail, Fire, Smoke and Sparkles
+- **Disable Trails** - Turns off Trail objects instead of destroying them
+- **Disable Beams** - Turns off Beam objects instead of destroying them
+- **Remove Beams** - Detaches Beam objects
+- **Disable Lights** - Turns off PointLight, SpotLight and SurfaceLight
+- **Disable Part Shadows** - Parts stop casting shadows
+- **Hide SurfaceGuis** - Hides SurfaceGui elements in the world
+- **Hide BillboardGuis** - Hides BillboardGui elements in the world
+- **Disable Constraints** - Turns off align, hinge, rod and motor constraints
+- **Disable Highlights** - Detaches Highlight instances from the world
+- **Disable Selection Boxes** - Detaches SelectionBox and SelectionSphere instances
+- **Remove GUI Effects** - Removes UIGradient, UIStroke and UIShadow from other ScreenGuis
+
+---
+
+## Performance Tab
+
+- **Core Settings** - Lowest quality level, mesh/texture detail, always-on physics throttle
+  - Quality level slider (1-21)
+- **FPS Cap** - Sets the frame rate cap with setfpscap
+  - FPS cap value slider (30-1000)
+- **Memory Cleanup** - Runs garbage collection when script memory passes threshold
+  - Cleanup threshold slider (25-1000 MB)
+- **Adaptive Performance** - Lowers quality + shrinks max distance when FPS drops
+  - Low FPS threshold slider
+- **FPS Counter** - Small FPS label in top-left corner
+- **Ping Counter** - Shows current ping below the FPS label
+- **Update interval** - How often the periodic checks run (3-60 seconds)
+
+---
+
+## Workspace Tab
+
+- **Freeze Distant Players** - Stops animations of other players beyond max distance
+  - Also freeze players behind the camera toggle
+- **Anchor Distant Objects** - Anchors unanchored parts beyond max distance
+  - Also anchor objects behind the camera toggle
+- **Render Distance** - Hides parts beyond the render distance slider
+  - Render distance slider (100-5000 studs)
+- **Throttle Sounds** - Pauses sounds beyond max distance, turns them down past half
+  - Max distance slider (20-500)
+- **Hide Other Players** - Hides every other player's character parts
+- **Hide Nametags** - Hides name/health displays above other players
+- **Remove Player Accessories** - Detaches hats and accessories from other players
+- **Freeze Other Animations** - Stops other players' animations entirely
+
+---
+
+## Network & UI Tab
+
+- **Throttle Remote Events** - Drops FireServer calls above limit per remote (hooks __namecall)
+  - Remote calls per second slider
+- **Disable Core GUI** - Hides player list, emotes menu and health bar
+- **Disable Bubble Chat** - Turns chat bubbles above heads off
+- **Hide Chat Window** - Hides the Roblox chat window
+- **Hide Floating UIs** - Disables all ScreenGuis except Sand.cc
+- **Disable Explosions** - Detaches Explosion instances on spawn
+- **Instant Debris Cleanup** - Detaches transient explosion effects on appearance
+- **Mute All Sounds** - Mutes every Sound in the world
+- **Mute Sound Groups** - Sets every SoundGroup volume to 0
+- **Mute Ambient Sounds** - Mutes ambient SoundGroups and effects from SoundService
+- **Mute Character Sounds** - Mutes footsteps and other sounds inside characters
+- **Anti-AFK** - Prevents the 20-minute idle disconnect
+- **Force No Transparency** - Forces full opacity on every base part
+
+---
+
+## Theme Tab
+
+- **UI Theme Dropdown** - Pick a WindUI theme (Dark / Light / etc.)
+- **UI Transparency Slider** - How transparent the window is (0 = solid, 1 = fully transparent)
+- **Text Cursor Input** - The cursor shown in the RNG4 typing tag (default: `_`)
+- **Text Cursor 2 Input** - The cursor shown when hidden (default: two spaces)
+- **Reset Appearance Button** - Resets theme, transparency and cursors
+
+---
+
+## Config Tab
+
+- **Save Now** - Writes the autosave file immediately
+- **Reload Saved File** - Reads the autosave and applies it live
+- **Enable Everything** - Turns on every feature
+- **Disable Everything** - Turns off every feature
+- **Reset to Defaults** - Same as Disable Everything but also resets all sliders/inputs
+- **Unload Sand.cc** - Fully unloads the script (with a cool flash effect :3)
+
+---
+
+## About Tab
+
+- Sand.cc branding
+- Description text
+- Note that Sand.cc pairs well with **Gravel.cc**
+
+---
+
+# Autosave
+
+Sand.cc stores its settings as a JSON file in:
+
+```
+Sand.cc/autosave.json
+```
+
+- Autosave runs **1 second after the last change** (debounced).
+- Autoload runs **at startup** if `autoload` is `true` (which is the default).
+- The file is a plain Lua-like table with one entry per setting.
+- Deleting the folder or file just means you lose your saved preferences.
+
+---
+
+# Public API
+
+When loaded, Sand.cc exposes a table via `getgenv().__SandCC` (and also returns it):
+
+```lua
+local SandCC = getgenv().__SandCC
+
+SandCC.State            -- live table of every setting value
+SandCC.set(key, value)  -- set a setting and sync the UI
+SandCC.save()           -- write the autosave file now
+SandCC.load()           -- load the autosave file and return how many keys were loaded
+SandCC.enableAll()      -- turn on every feature
+SandCC.disableAll()     -- turn off every feature
+SandCC.unload()         -- fully unload Sand.cc
+SandCC.PolyWindow       -- the WindUI window object (if one was created)
+```
+
+---
+
+# Quick Notes
+
+- It's pairable with **Gravel.cc**.
+- Some features hook `__namecall` (like Throttle Remote Events).. those can break gameplay.
+- Some features are hidden behind `sethiddenproperty` (like Remove Grass) and will fall back gracefully.
+- FPS Counter / Ping Counter use `Stats.Network.ServerStatsItem` and won't error on executors that block it.
+- The autosave uses a **JSON-with-one-entry-per-line** format so it's still valid JSON but easy to read.
+
+---
+
+**Sand.cc:**
+
+<details>
+  <summary>Active Tabs</summary>
+
+  1. Visuals
+  2. Textures & FX
+  3. Performance
+  4. Workspace
+  5. Network & UI
+  6. Theme
+  7. Config
+  8. About
+</details>
+
+<details>
+  <summary>Files</summary>
+
+  >Executor Workspace - your injector's workspace :p
+  
+  V
+  
+  >Sand.cc - stores the autosave file here!
+  
+  V
+  
+  >autosave.json - your saved settings live here
+</details>
+
+---
+
+***Gpssickle:***
+
+<details>
+  <summary>Links</summary>
+
+  1. [YouTube; Main Channel](https://youtube.com/@gpssickle?si=9bBIhhY7-nt2Ot7J)
+  2. [YouTube; Second Channel](https://www.youtube.com/@gpszickle)
+  3. [RScripts](rscripts.net/@Gpssickle)
+  4. [Scriptblox](https://scriptblox.com/u/Gpssickle)
+  5. [Roblox](https://www.roblox.com/users/8517361356/profile)
+</details>
+
+---
+
+<p align="center">
+  <i>"type sheet"</i><br>
+  ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ- Gpssickle
+</p>
