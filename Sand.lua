@@ -3258,7 +3258,7 @@ local function buildUI()
 
         ff:Paragraph({
             Title = "Warner",
-            Desc = "Bannable flags are your responsibility, don't do dumb stuff plzzz",
+            Desc = "Bannable flags are your responsibility,\ndon't do dumb stuff plzzz\n\nAlso if you want to stop Sand injecting fastflags completely just close Roblox and reopen it :p",
         })
     end
 
