@@ -165,13 +165,29 @@ A quick-reference of features that Sand.cc has :p
 
 ---
 
+## Fast Flags Tab
+
+- **Fast Flags JSON Input** - Paste a JSON dictionary of fast flags to inject
+- **Apply Fast Flags** - Injects the flags (requires setfflag/getfflag)
+- **Restore Prev FFlags** - Puts every flag back to what it was before Sand touched it
+- **Rejoin Server** - Teleports you back to this same server (useful after applying flags)
+- **Presets** - Save, load, and delete fast flag presets in the sand pile
+  - Preset name / search input (fuzzy matching supported)
+  - Save/Overwrite button
+  - Load button
+  - Delete button
+  - Save list display
+
+---
+
 ## Theme Tab
 
 - **UI Theme Dropdown** - Pick a WindUI theme (Dark / Light / etc.)
 - **UI Transparency Slider** - How transparent the window is (0 = solid, 1 = fully transparent)
 - **Text Cursor Input** - The cursor shown in the RNG4 typing tag (default: `_`)
 - **Text Cursor 2 Input** - The cursor shown when hidden (default: two spaces)
-- **Reset Appearance Button** - Resets theme, transparency and cursors
+- **Background Music Toggle** - Plays Sugary Spire OST "Results!" :p
+- **Reset Appearance Button** - Resets theme, transparency, cursors and BGM
 
 ---
 
@@ -191,6 +207,11 @@ A quick-reference of features that Sand.cc has :p
 - Sand.cc branding
 - Description text
 - Note that Sand.cc pairs well with **Gravel.cc**
+- Copy README.md URL button
+- Copy Source URL button
+- Also Try Out "Gravel.cc" button
+- Credits section
+- Updatelog section
 
 ---
 
@@ -206,6 +227,20 @@ Sand.cc/autosave.json
 - Autoload runs **at startup** if `autoload` is `true` (which is the default).
 - The file is a plain Lua-like table with one entry per setting.
 - Deleting the folder or file just means you lose your saved preferences.
+
+---
+
+# Presets
+
+Fast Flags presets are stored in:
+
+```
+Sand.cc/presets.json
+```
+
+- Presets are saved as JSON dictionaries of fast flags.
+- Fuzzy search is supported (typos are fine :v).
+- Presets can be saved, loaded, and deleted from the Fast Flags tab.
 
 ---
 
@@ -235,6 +270,8 @@ SandCC.PolyWindow       -- the WindUI window object (if one was created)
 - Some features are hidden behind `sethiddenproperty` (like Remove Grass) and will fall back gracefully.
 - FPS Counter / Ping Counter use `Stats.Network.ServerStatsItem` and won't error on executors that block it.
 - The autosave uses a **JSON-with-one-entry-per-line** format so it's still valid JSON but easy to read.
+- Fast Flags require `setfflag`/`getfflag` and most require a rejoin to take effect.
+- Background music is downloaded and cached in `Sand.cc/assets/Music/RESULTS.mp3`.
 
 ---
 
@@ -248,9 +285,10 @@ SandCC.PolyWindow       -- the WindUI window object (if one was created)
   3. Performance
   4. Workspace
   5. Network & UI
-  6. Theme
-  7. Config
-  8. About
+  6. Fast Flags
+  7. Theme
+  8. Config
+  9. About
 </details>
 
 <details>
@@ -265,6 +303,14 @@ SandCC.PolyWindow       -- the WindUI window object (if one was created)
   V
   
   >autosave.json - your saved settings live here
+  
+  V
+  
+  >presets.json - your fast flag presets live here
+  
+  V
+  
+  >assets/Music/RESULTS.mp3 - background music cache
 </details>
 
 ---
