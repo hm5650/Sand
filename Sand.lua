@@ -37,6 +37,7 @@ print([[
     README: https://github.com/hm5650/Sand/blob/main/README.md
     License: MIT
 ]]
+-- if u used a snippet pweaty pwease credit me 3;
 
 --i think I cooked....... myabe :0
 local env = (getgenv and getgenv()) or _G
@@ -640,6 +641,93 @@ local function restoreStash(f)
     f.stash = {}
 end
 
+local function otherCharacters()
+    local list = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then list[#list + 1] = plr.Character end
+    end
+    return list
+end
+local function watchCharacters(f, fn)
+    if f.charConns then return end
+    f.charConns = {}
+    local function hook(plr)
+        if plr == LocalPlayer then return end
+        f.charConns[#f.charConns + 1] = plr.CharacterAdded:Connect(function(char)
+            task.spawn(function()
+                char:WaitForChild("Humanoid", 10)
+                task.wait(0.3)
+                if alive and f.active and char.Parent then pcall(fn, char, plr) end
+            end)
+        end)
+    end
+    for _, plr in ipairs(Players:GetPlayers()) do hook(plr) end
+    f.charConns[#f.charConns + 1] = Players.PlayerAdded:Connect(hook)
+end
+local function unwatchCharacters(f)
+    for _, c in ipairs(f.charConns or {}) do pcall(function() c:Disconnect() end) end
+    f.charConns = nil
+end
+local function animContainer(char)
+    return char:FindFirstChildOfClass("Humanoid") or char:FindFirstChildOfClass("AnimationController")
+end
+local function freezeContainer(f, container)
+    f.frozen = f.frozen or {}
+    f.frozenConns = f.frozenConns or {}
+    local list = f.frozen[container]
+    if not list then
+        list = {}
+        f.frozen[container] = list
+        f.frozenConns[container] = container.ChildAdded:Connect(function(child)
+            if alive and f.active and f.frozen and f.frozen[container] and child:IsA("Animator") then
+                task.defer(function()
+                    if alive and f.active and f.frozen and f.frozen[container] then
+                        pcall(freezeContainer, f, container)
+                    end
+                end)
+            end
+        end)
+    end
+    for _, animator in ipairs(container:GetChildren()) do
+        if animator:IsA("Animator") then
+            for _, t in ipairs(animator:GetPlayingAnimationTracks()) do pcall(function() t:Stop(0) end) end
+            list[#list + 1] = animator
+            animator.Parent = nil
+        end
+    end
+end
+local function thawContainer(f, container)
+    local list = f.frozen and f.frozen[container]
+    if f.frozenConns and f.frozenConns[container] then
+        pcall(function() f.frozenConns[container]:Disconnect() end)
+        f.frozenConns[container] = nil
+    end
+    if f.frozen then f.frozen[container] = nil end
+    if not list or not container.Parent then return end
+    if container:FindFirstChildOfClass("Animator") then return end
+    local animator = list[1]
+    if animator and animator.Parent == nil then pcall(setProp, animator, "Parent", container) end
+end
+local function thawAll(f)
+    local conts = {}
+    for container in pairs(f.frozen or {}) do conts[#conts + 1] = container end
+    for _, container in ipairs(conts) do thawContainer(f, container) end
+    f.frozen, f.frozenConns = nil, nil
+end
+local function pruneFrozen(f)
+    local dead = {}
+    for container in pairs(f.frozen or {}) do
+        if not container.Parent then dead[#dead + 1] = container end
+    end
+    for _, container in ipairs(dead) do
+        if f.frozenConns and f.frozenConns[container] then
+            pcall(function() f.frozenConns[container]:Disconnect() end)
+            f.frozenConns[container] = nil
+        end
+        f.frozen[container] = nil
+    end
+end
+
 --defined feats
 defineFeature({
     key = "graySky", title = "Gray Sky",
@@ -1111,6 +1199,27 @@ defineFeature({
 })
 
 defineFeature({
+    key = "disableLegacyEffects", title = "Disable Fire/Smoke/Sparkles",
+    desc = "Turns off the old Fire, Smoke and Sparkles effects.",
+    onInstance = function(f, inst)
+        local c = inst.ClassName
+        if c == "Fire" or c == "Smoke" or c == "Sparkles" then
+            touch(f, inst, "Enabled", false)
+        end
+    end,
+})
+
+defineFeature({
+    key = "disableForceFields", title = "Hide ForceField Bubbles",
+    desc = "Makes spawn ForceField bubbles invisible.",
+    onInstance = function(f, inst)
+        if inst.ClassName == "ForceField" then
+            touch(f, inst, "Visible", false)
+        end
+    end,
+})
+
+defineFeature({
     key = "removeGuiEffects", title = "Remove GUI Effects",
     desc = "Removes UIGradient, UIStroke and UIShadow from other ScreenGuis. Sand/Gravel/WindUI preserved.",
     onInstance = function(f, inst)
@@ -1137,48 +1246,96 @@ defineFeature({
                 end
             end
         end
+        watchCharacters(f, function() f.apply(f) end)
     end,
     tick = reassert,
+    cleanup = function(f) unwatchCharacters(f) end,
 })
 
 defineFeature({
     key = "hideNametags", title = "Hide Nametags",
-    desc = "Hides name/health displays above other players.",
+    desc = "Hides name/health displays above other players (default overhead names + custom billboards).",
+    apply = function(f)
+        for _, char in ipairs(otherCharacters()) do
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                stouch(f, hum, "DisplayDistanceType", Enum.HumanoidDisplayDistanceType.None)
+                stouch(f, hum, "HealthDisplayType", Enum.HumanoidHealthDisplayType.AlwaysOff)
+            end
+            for _, d in ipairs(char:GetDescendants()) do
+                if d:IsA("BillboardGui") or d:IsA("SurfaceGui") then
+                    stouch(f, d, "Enabled", false)
+                end
+            end
+        end
+        watchCharacters(f, function() f.apply(f) end)
+    end,
     onInstance = function(f, inst)
-        if not inCharacter(inst) then return end
-        if isLocalCharacter(inst) then return end
         if inst:IsA("BillboardGui") or inst:IsA("SurfaceGui") then
-            touch(f, inst, "Enabled", false)
+            if inCharacter(inst) and not isLocalCharacter(inst) then
+                touch(f, inst, "Enabled", false)
+            elseif inst:IsA("BillboardGui") then
+                local a = inst.Adornee
+                if a and inCharacter(a) and not isLocalCharacter(a) then
+                    touch(f, inst, "Enabled", false)
+                end
+            end
+        elseif inst:IsA("Humanoid") then
+            local char = inst.Parent
+            if char and Players:GetPlayerFromCharacter(char) and not isLocalCharacter(char) then
+                touch(f, inst, "DisplayDistanceType", Enum.HumanoidDisplayDistanceType.None)
+                touch(f, inst, "HealthDisplayType", Enum.HumanoidHealthDisplayType.AlwaysOff)
+            end
         end
     end,
+    tick = reassert,
+    cleanup = function(f) unwatchCharacters(f) end,
 })
 
 defineFeature({
     key = "removeAccessories", title = "Remove Player Accessories",
     desc = "Detaches hats and accessories from other players",
+    apply = function(f)
+        for _, char in ipairs(otherCharacters()) do
+            for _, o in ipairs(char:GetChildren()) do
+                if o:IsA("Accessory") then stashAndDetach(f, o, char) end
+            end
+        end
+        watchCharacters(f, function() f.apply(f) end)
+    end,
     onInstance = function(f, inst)
         if not inst:IsA("Accessory") then return end
         if inCharacter(inst) and not isLocalCharacter(inst) then
             stashAndDetach(f, inst)
         end
     end,
-    cleanup = function(f) restoreStash(f) end,
+    tick = reassert,
+    cleanup = function(f)
+        unwatchCharacters(f)
+        restoreStash(f)
+    end,
 })
 
 defineFeature({
     key = "freezeAllAnimations", title = "Freeze Other Animations",
-    desc = "Stops other players' animations entirely.",
+    desc = "Stops other players' animations entirely",
     apply = function(f)
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                local anim = plr.Character:FindFirstChildOfClass("Animator")
-                if anim then
-                    for _, t in ipairs(anim:GetPlayingAnimationTracks()) do t:Stop(0) end
-                end
-            end
+        f.frozen = f.frozen or {}
+        pruneFrozen(f)
+        for _, char in ipairs(otherCharacters()) do
+            local c = animContainer(char)
+            if c then pcall(freezeContainer, f, c) end
         end
+        watchCharacters(f, function(char)
+            local c = animContainer(char)
+            if c then freezeContainer(f, c) end
+        end)
     end,
     tick = reassert,
+    cleanup = function(f)
+        unwatchCharacters(f)
+        thawAll(f)
+    end,
 })
 
 defineFeature({
@@ -1264,6 +1421,7 @@ defineFeature({
                 end
             end
         end
+        watchCharacters(f, function() f.apply(f) end)
     end,
     onInstance = function(f, inst)
         if not inst:IsA("Sound") then return end
@@ -1272,6 +1430,7 @@ defineFeature({
         end
     end,
     tick = reassert,
+    cleanup = function(f) unwatchCharacters(f) end,
 })
 
 defineFeature({
@@ -1521,6 +1680,10 @@ defineFeature({
             Runtime.penalty = math.min(Runtime.penalty + 10, math.max(State.maxDistance - 20, 0))
             Runtime.quality = 1
             refreshDependents()
+        elseif Runtime.penalty > 0 and fps > State.fpsThreshold + 10 then
+            Runtime.penalty = math.max(Runtime.penalty - 10, 0)
+            if Runtime.penalty == 0 then Runtime.quality = nil end
+            refreshDependents()
         end
     end,
     cleanup = function(f)
@@ -1654,65 +1817,96 @@ defineFeature({
 
 defineFeature({
     key = "freezePlayers", title = "Freeze Distant Players",
-    desc = "Stops animations of other players beyond the max distance.",
-    params = { "maxDistance", "freezeBehindCamera" },
+    desc = "Stops animations of other players beyond the max distance (rechecked every fraction of a second).",
+    params = { "maxDistance", "freezeBehindCamera", "freezeCheckRate" },
     apply = function(f)
         f.frozen = f.frozen or {}
+        pruneFrozen(f)
         local myChar = LocalPlayer.Character
         local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
         if not myRoot then return end
         local cam = Workspace.CurrentCamera
         local limit = effectiveDistance()
-        local seen = {}
-        for _, plr in ipairs(Players:GetPlayers()) do
-            local char = plr ~= LocalPlayer and plr.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            if hum and root and root.Parent then
-                seen[hum] = true
-                local freeze = (root.Position - myRoot.Position).Magnitude > limit
+        for _, char in ipairs(otherCharacters()) do
+            local container = animContainer(char)
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if container and root then
+                local isFrozen = f.frozen[container] ~= nil
+                local lim = isFrozen and limit * 0.95 or limit
+                local freeze = (root.Position - myRoot.Position).Magnitude > lim
                 if not freeze and State.freezeBehindCamera and cam then
                     local dir = root.Position - cam.CFrame.Position
                     if dir.Magnitude > 0.01 and dir.Unit:Dot(cam.CFrame.LookVector) < 0 then freeze = true end
                 end
                 if freeze then
-                    if not f.frozen[hum] then
-                        local animator = hum:FindFirstChildOfClass("Animator")
-                        if animator then
-                            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do track:Stop(0) end
-                            f.frozen[hum] = animator
-                            animator.Parent = nil
-                        end
-                    end
-                else
-                    local animator = f.frozen[hum]
-                    if animator then
-                        if animator.Parent == nil and hum.Parent then
-                            animator.Parent = hum
-                        end
-                        f.frozen[hum] = nil
-                    end
+                    pcall(freezeContainer, f, container)
+                elseif isFrozen then
+                    thawContainer(f, container)
                 end
             end
         end
-        for hum, animator in pairs(f.frozen) do
-            if not seen[hum] then
-                if hum and hum.Parent and animator and animator.Parent == nil then
-                    pcall(setProp, animator, "Parent", hum)
+        if not f.conn then
+            f.acc = 0
+            f.conn = RunService.Heartbeat:Connect(function(dt)
+                if not alive or not f.active then return end
+                f.acc = f.acc + dt
+                if f.acc >= clamp(State.freezeCheckRate or 0.5, 0.1, 5) then
+                    f.acc = 0
+                    local ok, err = pcall(f.apply, f)
+                    if not ok then warnOnce("Freeze Distant Players: " .. tostring(err)) end
                 end
-                f.frozen[hum] = nil
-            end
+            end)
         end
     end,
     tick = reassert,
     cleanup = function(f)
-        for hum, animator in pairs(f.frozen or {}) do
-            if hum and hum.Parent and animator and animator.Parent == nil then
-                pcall(setProp, animator, "Parent", hum)
+        if f.conn then f.conn:Disconnect() f.conn = nil end
+        thawAll(f)
+    end,
+})
+
+defineFeature({
+    key = "removeClothing", title = "Remove Player Clothing",
+    desc = "Detaches shirts, pants and graphic shirts from other players\n \n(ik what your thinking o///o)",
+    apply = function(f)
+        for _, char in ipairs(otherCharacters()) do
+            for _, o in ipairs(char:GetChildren()) do
+                if o:IsA("Shirt") or o:IsA("Pants") or o:IsA("ShirtGraphic") or o:IsA("CharacterMesh") then
+                    stashAndDetach(f, o, char)
+                end
             end
         end
-        f.frozen = nil
+        watchCharacters(f, function() f.apply(f) end)
     end,
+    onInstance = function(f, inst)
+        if inst:IsA("Shirt") or inst:IsA("Pants") or inst:IsA("ShirtGraphic") or inst:IsA("CharacterMesh") then
+            if inCharacter(inst) and not isLocalCharacter(inst) then stashAndDetach(f, inst) end
+        end
+    end,
+    tick = reassert,
+    cleanup = function(f)
+        unwatchCharacters(f)
+        restoreStash(f)
+    end,
+})
+
+defineFeature({
+    key = "hideTools", title = "Hide Held Tools",
+    desc = "Detaches tools other players are holding from their characters",
+    apply = function(f)
+        for _, char in ipairs(otherCharacters()) do
+            for _, o in ipairs(char:GetChildren()) do
+                if o:IsA("Tool") then stashAndDetach(f, o, char) end
+            end
+        end
+    end,
+    onInstance = function(f, inst)
+        if inst:IsA("Tool") and inCharacter(inst) and not isLocalCharacter(inst) then
+            stashAndDetach(f, inst)
+        end
+    end,
+    tick = reassert,
+    cleanup = function(f) restoreStash(f) end,
 })
 
 defineFeature({
@@ -2035,6 +2229,8 @@ local Controls = {
         desc = "Hide Textures skips decals whose name (or parent's name) matches the keywords." },
     freezeBehindCamera = { kind = "toggle", default = false, title = "Also freeze players behind the camera",
         desc = "Used by Freeze Distant Players." },
+    freezeCheckRate = { kind = "slider", default = 0.5, min = 0.1, max = 5, step = 0.1, title = "Freeze check rate (seconds)",
+        desc = "Used by Freeze Distant Players. How often distances are rechecked." },
     anchorBehindCamera = { kind = "toggle", default = false, title = "Also anchor objects behind the camera",
         desc = "Used by Anchor Distant Objects." },
     qualityLevel = { kind = "slider", default = 1, min = 1, max = 21, step = 1, title = "Quality level",
@@ -2476,6 +2672,7 @@ local Layout = {
         { "f", "disableConstraints" },
         { "f", "disableHighlights" }, { "f", "disableSelectionBoxes" },
         { "f", "removeGuiEffects" },
+        { "f", "disableLegacyEffects" }, { "f", "disableForceFields" },
     },
     performance = {
         { "f", "coreSettings" }, { "c", "qualityLevel" },
@@ -2486,14 +2683,14 @@ local Layout = {
         { "c", "interval" },
     },
     players = {
-        { "f", "freezePlayers" }, { "c", "freezeBehindCamera" },
+        { "f", "freezePlayers" }, { "c", "freezeBehindCamera" }, { "c", "freezeCheckRate" },
         { "f", "anchorDistant" }, { "c", "anchorBehindCamera" },
         { "f", "renderDistance" }, { "c", "renderDistance" },
         { "f", "throttleSounds" },
         { "c", "maxDistance" },
         { "f", "hideOtherPlayers" },
         { "f", "hideNametags" },
-        { "f", "removeAccessories" },
+        { "f", "removeAccessories" }, { "f", "removeClothing" }, { "f", "hideTools" },
         { "f", "freezeAllAnimations" },
     },
     network = {
@@ -3258,7 +3455,7 @@ local function buildUI()
 
         ff:Paragraph({
             Title = "Warner",
-            Desc = "Bannable flags are your responsibility,\ndon't do dumb stuff plzzz\n\nAlso if you want to stop Sand injecting fastflags completely just close Roblox and reopen it :p",
+            Desc = "Bannable flags are your responsibility,\ndon't do dumb stuff plzzz\n \nAlso if you want to stop Sand injecting fastflags completely just close Roblox and reopen it :p",
         })
     end
 
@@ -3372,7 +3569,7 @@ end })
 
     local at = Tabs.about
     at:Section({ Title = "Sand.cc", TextSize = 24 })
-    at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n\nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n\nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3", TextSize = 16 })
+    at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n \nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n \nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3\n \nif u used a snippet pweaty pwease credit me 3;", TextSize = 16 })
     at:Space()
     at:Paragraph({
         Title = "Code",
@@ -3416,16 +3613,20 @@ at:Paragraph({
 })
 at:Paragraph({
     Title = "Sand: UI",
-    Desc = "UI: WindUI (Footagesus)\n\nAnd that's it :1\ntoo lazy to type more stuff",
+    Desc = "UI: WindUI (Footagesus)\n \nAnd that's it :1\ntoo lazy to type more stuff",
 })
 at:Space()
 at:Paragraph({
     Title = "Updatelog",
-    Desc = "Update history and changes\n\nSand (DD/MM/YYYY)",
+    Desc = "Update history and changes\n \nSand (DD/MM/YYYY)",
 })
 at:Paragraph({
     Title = "Sand (05/10/2025)",
     Desc = "Howdy! im existing now :3",
+})
+at:Paragraph({
+    Title = "Sand (07/10/2025)",
+    Desc = "sum bug fixes ig & new stuff\nAdded: Remove Player Clothing\nAdded: Hide Held Tools\nAdded: Disable Fire/Smoke/Sparkles\nAdded: Hide ForceField Bubbles\nBugs Fixed: 9",
 })
 task_("startRNG4", function()
     task.wait(0.5)
@@ -3436,7 +3637,7 @@ end
 --tsu
 --[[
 at:Paragraph({
-    Title = "Optiz (DD/10/2025)",
+    Title = "Sand (DD/10/2025)",
     Desc = "",
 })
 ]]
