@@ -1,6 +1,4 @@
-*by Gpssickle! :D*
-
-<h1 align="center">Sand.cc</h1>
+# Sand.cc
 
 <p align="center">
   <img src="https://i.postimg.cc/dt65c2T9/Untitled184-20261005185058.png" alt="idk" width="300">
@@ -59,7 +57,6 @@ local e,f=loadstring(d.Body)
 if not e then warn(f) else e() end
 ```
 
-
 ---
 
 # Tabs TL;DR
@@ -110,6 +107,8 @@ A quick-reference of features that Sand.cc has :p
 - **Disable Highlights** - Detaches Highlight instances from the world
 - **Disable Selection Boxes** - Detaches SelectionBox and SelectionSphere instances
 - **Remove GUI Effects** - Removes UIGradient, UIStroke and UIShadow from other ScreenGuis
+- **Disable Fire/Smoke/Sparkles** - Turns off the old Fire, Smoke and Sparkles effects
+- **Hide ForceField Bubbles** - Makes spawn ForceField bubbles invisible
 
 ---
 
@@ -133,6 +132,7 @@ A quick-reference of features that Sand.cc has :p
 
 - **Freeze Distant Players** - Stops animations of other players beyond max distance
   - Also freeze players behind the camera toggle
+  - Freeze check rate slider (0.1-5 seconds)
 - **Anchor Distant Objects** - Anchors unanchored parts beyond max distance
   - Also anchor objects behind the camera toggle
 - **Render Distance** - Hides parts beyond the render distance slider
@@ -142,6 +142,8 @@ A quick-reference of features that Sand.cc has :p
 - **Hide Other Players** - Hides every other player's character parts
 - **Hide Nametags** - Hides name/health displays above other players
 - **Remove Player Accessories** - Detaches hats and accessories from other players
+- **Remove Player Clothing** - Detaches shirts, pants and graphic shirts from other players
+- **Hide Held Tools** - Detaches tools other players are holding from their characters
 - **Freeze Other Animations** - Stops other players' animations entirely
 
 ---
