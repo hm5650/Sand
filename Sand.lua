@@ -3522,7 +3522,7 @@ local function buildUI()
                 syncUI("uiTransparency")
                 syncUI("textCursor")
                 syncUI("textCursor2")
-                notify("Sand.cc", "Appearance reset to defaults.")
+                notify("Sand", "Appearance reset to defaults.")
             end,
         })
     end
@@ -3535,13 +3535,13 @@ local function buildUI()
     })
     ct:Space()
     ct:Button({ Title = "Save now", Icon = "save", Justify = "Center", Callback = function()
-        notify("Sand.cc", saveNow() and "Saved." or "Couldn't save (see the console).")
+        notify("Sand", saveNow() and "Saved." or "Couldn't save (see the console).")
     end })
     ct:Space()
     ct:Button({ Title = "Reload saved file", Icon = "refresh-cw", Justify = "Center", Callback = function()
         local n = loadSaved(true)
         for key in pairs(Defs) do syncUI(key) end
-        notify("Sand.cc", n > 0 and ("Loaded " .. n .. " settings.") or "No saved file found.")
+        notify("Sand", n > 0 and ("Loaded " .. n .. " settings.") or "No saved file found.")
     end })
     ct:Space()
 ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
@@ -3551,24 +3551,24 @@ ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callb
             syncUI(f.key)
         end
     end
-    notify("Sand.cc", "All features switched on")
+    notify("Sand", "All features switched on")
 end })
     ct:Space()
     ct:Button({ Title = "Disable everything", Icon = "power", Justify = "Center", Callback = function()
         disableAll()
-        notify("Sand.cc", "All features switched off.")
+        notify("Sand", "All features switched off.")
     end })
     ct:Space()
     ct:Button({ Title = "Reset to defaults", Icon = "rotate-ccw", Justify = "Center", Callback = function()
         resetDefaults()
-        notify("Sand.cc", "Everything is off again.")
+        notify("Sand", "Everything is off again.")
     end })
     ct:Space()
     ct:Button({ Title = "Unload Sand.cc", Icon = "shredder", Justify = "Center",
         Color = Color3.fromHex("#ff4830"), Callback = function() cfg.unload() end })
 
     local at = Tabs.about
-    at:Section({ Title = "Sand.cc", TextSize = 24 })
+    at:Section({ Title = "Sand", TextSize = 24 })
     at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n \nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n \nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3\n \nif u used a snippet pweaty pwease credit me 3;", TextSize = 16 })
     at:Space()
     at:Paragraph({
@@ -3582,7 +3582,7 @@ at:Button({
     Justify = "Center",
     Callback = function()
         setclipboard("https://github.com/hm5650/Sand/blob/main/README.md")
-        notify("Sand.cc", "README.md URL copied!! :3")
+        notify("Sand", "README.md URL copied!! :3")
     end
 })
 at:Button({
@@ -3592,7 +3592,7 @@ at:Button({
     Justify = "Center",
     Callback = function()
         setclipboard("https://github.com/hm5650/Sand/tree/main")
-        notify("Sand.cc", "Source URL copied!! :3")
+        notify("Sand", "Source URL copied!! :3")
     end
 })
 at:Space()
@@ -3603,7 +3603,7 @@ at:Button({
     Justify = "Center",
     Callback = function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/HBSS/refs/heads/main/HBSS.lua"))()
-        notify("Sand.cc", "Gravel.cc STARTED!?1!1!")
+        notify("Sand", "Gravel.cc STARTED!?1!1!")
     end
 })
 at:Space()
@@ -3760,7 +3760,7 @@ if cfg.createwindui ~= false then
     if not ok then warnf("UI error: " .. tostring(err)) end
     cfg.PolyWindow = PolyWindow
     if PolyWindow and autoloaded > 0 then
-        notify("Sand.cc", "Autoloaded " .. autoloaded .. " saved settings.")
+        notify("Sand", "Autoloaded " .. autoloaded .. " saved settings.")
     end
 end
 task_("initBGM", function()
