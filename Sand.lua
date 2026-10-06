@@ -2365,25 +2365,25 @@ end
 local function presetSave()
     local name = trimStr(presetQuery):sub(1, 40)
     if name == "" then
-        notify("Sand: Presets", "Type a name in the box first, silly :p")
+        notify("Sand", "Type a name in the box first, silly :p")
         return
     end
     if not fsReady() then
-        notify("Sand: Presets", "This executor has no file functions, can't save presets :(")
+        notify("Sand", "This executor has no file functions, can't save presets :(")
         return
     end
     local tbl, err = parseFlagJSON(State.fflagJSON)
     if not tbl then
-        notify("Sand: Presets", "Your flag JSON is " .. tostring(err) .. ", fix it before saving :o")
+        notify("Sand", "Your flag JSON is " .. tostring(err) .. ", fix it before saving :o")
         return
     end
     local existing = exactPresetName(name)
     local key = existing or name
     Presets[key] = State.fflagJSON
     if savePresetFile() then
-        notify("Sand: Presets", (existing and "Overwrote " or "Stashed ") .. "\"" .. key .. "\" (" .. presetFlagCount(State.fflagJSON) .. " flags) in the sand pile :3")
+        notify("Sand", (existing and "Overwrote " or "Stashed ") .. "\"" .. key .. "\" (" .. presetFlagCount(State.fflagJSON) .. " flags) in the sand pile :3")
     else
-        notify("Sand: Presets", "Couldn't write the preset file (see console) :c")
+        notify("Sand", "Couldn't write the preset file (see console) :c")
     end
     refreshPresetList()
 end
@@ -2391,12 +2391,12 @@ end
 local function presetLoad()
     local q = trimStr(presetQuery)
     if q == "" then
-        notify("Sand: Presets", "Type (part of) a preset name first :p")
+        notify("Sand", "Type (part of) a preset name first :p")
         return
     end
     local hits = searchPresets(q)
     if #hits == 0 then
-        notify("Sand: Presets", "No preset looks like \"" .. q .. "\" :o")
+        notify("Sand", "No preset looks like \"" .. q .. "\" :o")
         return
     end
     local name = hits[1].name
@@ -2417,28 +2417,28 @@ local function presetLoad()
         msg = msg .. " (setfflag missing, so nothing was injected)"
     end
     if hits[1].score < 1000 then msg = msg .. " [fuzzy match for \"" .. q .. "\"]" end
-    notify("Sand: Presets", msg .. " :3", 5)
+    notify("Sand", msg .. " :3", 5)
 end
 
 local function presetDelete()
     local q = trimStr(presetQuery)
     if q == "" then
-        notify("Sand: Presets", "Type (part of) a preset name first :p")
+        notify("Sand", "Type (part of) a preset name first :p")
         return
     end
     local hits = searchPresets(q)
     if #hits == 0 then
-        notify("Sand: Presets", "No preset looks like \"" .. q .. "\" :o")
+        notify("Sand", "No preset looks like \"" .. q .. "\" :o")
         return
     end
     if hits[1].score < 600 then
-        notify("Sand: Presets", "Not sure enough to delete. Did you mean \"" .. hits[1].name .. "\"? Type it out properly :v")
+        notify("Sand", "Not sure enough to delete. Did you mean \"" .. hits[1].name .. "\"? Type it out properly :v")
         return
     end
     local name = hits[1].name
     Presets[name] = nil
     savePresetFile()
-    notify("Sand: Presets", "Yeeted \"" .. name .. "\" into the void :3")
+    notify("Sand", "Yeeted \"" .. name .. "\" into the void :3")
     refreshPresetList()
 end
 
