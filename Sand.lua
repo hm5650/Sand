@@ -31,8 +31,6 @@ print([[
                                                                            
                                                     - Gpssickle                       
 ]])
-end
-
 --[[
     Author: Gpssickle! (hm5650)
     GithHub: https://github.com/hm5650/Sand/tree/main
@@ -40,14 +38,14 @@ end
     License: MIT
 ]]
 
---ig I cooked at ts 🥀
+--i think I cooked....... myabe :0
 local env = (getgenv and getgenv()) or _G
 if env.Saaaaaaaaaaaaaaaaaaaaaaand_ then
     return
 end
 env.Saaaaaaaaaaaaaaaaaaaaaaand_ = true
 
---spaghetti code yummyy....,........ orrrr is it???? :O
+--uhh btw this script is pairable with gravel.cc :3
 local cloneref = cloneref or clonereference or function(inst) return inst end
 local UNIQ = string.format("%d_%d_%d_%d_%d",
     math.random(100000000, 999999999),
@@ -69,7 +67,7 @@ if type(env.__SandCC) == "table" and type(env.__SandCC.unload) == "function" the
     pcall(env.__SandCC.unload)
 end
 if not game:IsLoaded() then game.Loaded:Wait() end
---services........ ok tbh I'm not gonna comment on all features in to lazy for daf
+
 local Players = cloneref(game:GetService("Players"))
 local Lighting = cloneref(game:GetService("Lighting"))
 local RunService = cloneref(game:GetService("RunService"))
@@ -80,6 +78,46 @@ local TextChatService = cloneref(game:GetService("TextChatService"))
 local Workspace = cloneref(game:GetService("Workspace"))
 local SoundService = cloneref(game:GetService("SoundService"))
 local LocalPlayer = Players.LocalPlayer
+
+--state
+local alive = true
+local State = {}
+local Runtime = { penalty = 0, quality = nil, pausedAutoload = nil }
+local OwnGuis = setmetatable({}, { __mode = "k" })
+local warned = {}
+local Threads = {}
+
+local function warnf(msg) warn("[Sand.cc] " .. tostring(msg)) end
+local function warnOnce(msg)
+    if not warned[msg] then
+        warned[msg] = true
+        warnf(msg)
+    end
+end
+
+local function task_(key, fn)
+    if Threads[key] then
+        pcall(task.cancel, Threads[key])
+        Threads[key] = nil
+    end
+    local thread = task.spawn(function(...)
+        local ok, err = pcall(fn, ...)
+        if not ok and not string.find(tostring(err), "cancel") then
+            warnf("[thread '" .. key .. "'] " .. tostring(err))
+        end
+    end)
+    Threads[key] = thread
+    return thread
+end
+
+local function killthreads()
+    for key, thread in pairs(Threads) do
+        pcall(task.cancel, thread)
+        Threads[key] = nil
+    end
+end
+
+--lder
 do
     local loaderGui = Instance.new("ScreenGui")
     loaderGui.Name = "392828837_828_88_38828_83"
@@ -151,7 +189,7 @@ do
         if type(getgenv) ~= "function" then table.insert(missing, "getgenv") end
         return #missing == 0, missing
     end
-    task.spawn(function()
+    task_("loader", function()
         task.wait(0.5)
         local supported, missing = checkExecutor()
         task.wait(1.5)
@@ -176,19 +214,6 @@ do
         task.wait(1)
         pcall(function() startupSound:Destroy() end)
     end)
-end
-
-local alive = true
-local State = {}
-local Runtime = { penalty = 0, quality = nil, pausedAutoload = nil }
-local OwnGuis = setmetatable({}, { __mode = "k" })
-local warned = {}
-local function warnf(msg) warn("[Sand.cc] " .. tostring(msg)) end
-local function warnOnce(msg)
-    if not warned[msg] then
-        warned[msg] = true
-        warnf(msg)
-    end
 end
 
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
@@ -232,25 +257,49 @@ local function guiParent(gui)
     if not ok or not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 end
 
+local istg = { "sand", "gravel", "windui", "window", }
+local function isProtectedName(name)
+    local n = string.lower(tostring(name or ""))
+    for i = 1, #istg do
+        if string.find(n, istg[i], 1, true) then return true end
+    end
+    return false
+end
+local function isProtectedGui(inst)
+    if not inst then return false end
+    local p = inst
+    while p do
+        if p:IsA("ScreenGui") or p:IsA("LayerCollector") then
+            return isProtectedName(p.Name)
+        end
+        p = p.Parent
+    end
+    return false
+end
+
 local function effectiveDistance() return math.max(20, State.maxDistance - Runtime.penalty) end
 local Features, FeatureByKey, InstFeatures, ParamIndex = {}, {}, {}, {}
 local Orig = {}
-
 local function weakKeys() return setmetatable({}, { __mode = "k" }) end
+local function strongKeys() return {} end
 local function setProp(inst, prop, value) inst[prop] = value end
 
 local function touch(f, inst, prop, value)
     local ok, cur = pcall(function() return inst[prop] end)
     if not ok then return end
     local ot = Orig[prop]
+    local alreadyOwned = ot and ot[inst] ~= nil
+    if not alreadyOwned and cur == value then
+        return
+    end
     if not ot then
-        ot = weakKeys()
+        ot = strongKeys()
         Orig[prop] = ot
     end
     if ot[inst] == nil then ot[inst] = cur end
     local set = f.touched[prop]
     if not set then
-        set = weakKeys()
+        set = strongKeys()
         f.touched[prop] = set
     end
     set[inst] = true
@@ -285,7 +334,11 @@ local function untouchAll(f)
         end
         for inst in pairs(set) do
             local orig = ot and ot[inst]
-            if orig ~= nil then pcall(setProp, inst, prop, orig) end
+            if orig ~= nil then
+                pcall(function()
+                    if inst.Parent ~= nil then setProp(inst, prop, orig) end
+                end)
+            end
             local claimed = false
             for i = 1, #rivals do
                 if rivals[i][inst] then claimed = true break end
@@ -300,6 +353,30 @@ local function untouchAll(f)
         end
     end
     return shared
+end
+
+local function pruneDead()
+    local n = 0
+    local stashed = {}
+    for _, f in ipairs(Features) do
+        for _, st in ipairs(f.stash or {}) do stashed[st.obj] = true end
+    end
+    for _, ot in pairs(Orig) do
+        for inst in pairs(ot) do
+            local ok, parent = pcall(function() return inst.Parent end)
+            if (not ok or parent == nil) and not stashed[inst] then ot[inst] = nil end
+            n = n + 1
+            if n % 2000 == 0 then task.wait() end
+        end
+    end
+    for _, f in ipairs(Features) do
+        for _, set in pairs(f.touched or {}) do
+            for inst in pairs(set) do
+                local ok, parent = pcall(function() return inst.Parent end)
+                if (not ok or parent == nil) and not stashed[inst] then set[inst] = nil end
+            end
+        end
+    end
 end
 
 local function cos(input)
@@ -330,12 +407,13 @@ local function cos(input)
     return "Invalid input"
 end
 _ = print
+
 local Jobs, Working = {}, false
 local function enqueue(fn)
     Jobs[#Jobs + 1] = fn
     if Working then return end
     Working = true
-    task.spawn(function()
+    task_("jobWorker", function()
         while #Jobs > 0 do
             local job = table.remove(Jobs, 1)
             local ok, err = pcall(job)
@@ -343,6 +421,75 @@ local function enqueue(fn)
         end
         Working = false
     end)
+end
+local PartCache = {
+    parts = {},
+    set = setmetatable({}, { __mode = "k" }),
+    conns = {},
+    scanning = false,
+}
+local function isPartCandidate(inst)
+    return inst:IsA("BasePart") and inst.ClassName ~= "Terrain"
+end
+local function startPartCache()
+    if PartCache.conns.add then return end
+    PartCache.conns.add = Workspace.DescendantAdded:Connect(function(inst)
+        if isPartCandidate(inst) and not PartCache.set[inst] then
+            PartCache.set[inst] = true
+            PartCache.parts[#PartCache.parts + 1] = inst
+        end
+    end)
+    PartCache.conns.remove = Workspace.DescendantRemoving:Connect(function(inst)
+        if PartCache.set[inst] then
+            PartCache.set[inst] = nil
+        end
+    end)
+    if not PartCache.scanning then
+        PartCache.scanning = true
+        task_("partCacheScan", function()
+            local all = Workspace:GetDescendants()
+            for i = 1, #all do
+                local inst = all[i]
+                if isPartCandidate(inst) and not PartCache.set[inst] then
+                    PartCache.set[inst] = true
+                    PartCache.parts[#PartCache.parts + 1] = inst
+                end
+                if i % 2000 == 0 then task.wait() end
+            end
+            PartCache.scanning = false
+        end)
+    end
+end
+local function stopPartCache()
+    if PartCache.conns.add then pcall(function() PartCache.conns.add:Disconnect() end) PartCache.conns.add = nil end
+    if PartCache.conns.remove then pcall(function() PartCache.conns.remove:Disconnect() end) PartCache.conns.remove = nil end
+    PartCache.parts = {}
+    PartCache.set = setmetatable({}, { __mode = "k" })
+    PartCache.scanning = false
+end
+local function eachCachedPart(fn)
+    local parts = PartCache.parts
+    local keep = 1
+    local n = #parts
+    for i = 1, n do
+        local inst = parts[i]
+        if inst and inst.Parent ~= nil then
+            parts[keep] = inst
+            keep = keep + 1
+            if not fn(inst) then
+                for j = i + 1, n do
+                    if parts[j] and parts[j].Parent ~= nil then
+                        parts[keep] = parts[j]
+                        keep = keep + 1
+                    end
+                end
+                for j = keep, n do parts[j] = nil end
+                return
+            end
+        end
+        if i % 2000 == 0 then task.wait() end
+    end
+    for j = keep, n do parts[j] = nil end
 end
 
 local function scan(list)
@@ -493,11 +640,11 @@ local function restoreStash(f)
     f.stash = {}
 end
 
---feat defining
+--defined feats
 defineFeature({
     key = "graySky", title = "Gray Sky",
-    desc = "Replaces the sky, atmosphere and clouds with a flat gray skybox.",
-    params = { "graySkyId" },
+    desc = "Doesn't use fastflags for this btw :>",
+    params = { "graySkyl" },
     apply = function(f)
         f.stash = f.stash or {}
         local function stashFrom(parent)
@@ -516,7 +663,7 @@ defineFeature({
             f.sky = Instance.new("Sky")
             f.sky.Name = "SandSky"
         end
-        local id = State.graySkyId
+        local id = "rbxassetid://114666145996289"
         f.sky.SunAngularSize = 0
         f.sky.MoonAngularSize = 0
         f.sky.StarCount = 0
@@ -756,7 +903,7 @@ defineFeature({
 
 defineFeature({
     key = "removeTerrainDetail", title = "Low Detail Models",
-    desc = "Forces every Model to the cheapest LevelOfDetail (StreamingMesh) so the engine renders simplified geometry.",
+    desc = "Forces every Model to the cheapest LevelOfDetail (StreamingMesh).",
     onInstance = function(f, inst)
         if inst:IsA("Model") then
             local ok = pcall(function() inst.LevelOfDetail = Enum.ModelLevelOfDetail.StreamingMesh end)
@@ -789,6 +936,7 @@ defineFeature({
     apply = function(f) f.kw = parseKeywords(State.greyboxKeywords) or {} end,
     onInstance = function(f, inst)
         local kw = f.kw or {}
+        if #kw == 0 then return end
         if inst:IsA("BasePart") then
             if inst.ClassName ~= "Terrain" and not inCharacter(inst) and matchesAny(inst.Name, kw) then
                 touch(f, inst, "Material", Enum.Material.Plastic)
@@ -801,6 +949,20 @@ defineFeature({
             local p = inst.Parent
             if p and p:IsA("BasePart") and not inCharacter(p) and matchesAny(p.Name, kw) then
                 touch(f, inst, "Transparency", 1)
+            end
+        end
+    end,
+    cleanup = function(f)
+        local log = f.touched or {}
+        for prop, set in pairs(log) do
+            local ot = Orig[prop]
+            if ot then
+                for inst in pairs(set) do
+                    local orig = ot[inst]
+                    if orig ~= nil and inst.Parent ~= nil then
+                        pcall(setProp, inst, prop, orig)
+                    end
+                end
             end
         end
     end,
@@ -818,17 +980,33 @@ defineFeature({
 
 defineFeature({
     key = "hideTextures", title = "Hide Textures",
-    desc = "Makes decals and textures invisible (characters are left alone).",
+    desc = "Makes decals and textures invisible",
     params = { "keepImportantTextures", "textureKeywords" }, reactivate = true,
-    apply = function(f) f.kw = parseKeywords(State.textureKeywords) or {} end,
+    apply = function(f)
+        f.kw = parseKeywords(State.textureKeywords) or {}
+        f.backup = f.backup or {}
+    end,
     onInstance = function(f, inst)
         if inst:IsA("Decal") and not inCharacter(inst) then
             if State.keepImportantTextures then
                 local p = inst.Parent
                 if matchesAny(inst.Name, f.kw or {}) or (p and matchesAny(p.Name, f.kw or {})) then return end
             end
+            f.backup = f.backup or {}
+            if f.backup[inst] == nil then
+                local ok, cur = pcall(function() return inst.Transparency end)
+                if ok and cur ~= 1 then f.backup[inst] = cur end
+            end
             touch(f, inst, "Transparency", 1)
         end
+    end,
+    cleanup = function(f)
+        for inst, orig in pairs(f.backup or {}) do
+            pcall(function()
+                if inst.Parent ~= nil then inst.Transparency = orig end
+            end)
+        end
+        f.backup = nil
     end,
 })
 
@@ -845,7 +1023,7 @@ defineFeature({
 
 defineFeature({
     key = "throttleParticles", title = "Throttle Particles",
-    desc = "Switches particle emitters off (characters are left alone).",
+    desc = "Switches particle emitters off",
     onInstance = function(f, inst)
         if inst.ClassName == "ParticleEmitter" and not inCharacter(inst) then
             touch(f, inst, "Enabled", false)
@@ -899,7 +1077,7 @@ defineFeature({
 
 defineFeature({
     key = "disableConstraints", title = "Disable Constraints",
-    desc = "Turns off align, hinge, rod and motor constraints in the world. Moving doors or vehicles may stop working.",
+    desc = "Turns off align, hinge, rod and motor constraints in the world.",
     onInstance = function(f, inst)
         local c = inst.ClassName
         if (c == "AlignPosition" or c == "AlignOrientation" or c == "HingeConstraint"
@@ -934,19 +1112,11 @@ defineFeature({
 
 defineFeature({
     key = "removeGuiEffects", title = "Remove GUI Effects",
-    desc = "Removes UIGradient, UIStroke and UIShadow from other ScreenGuis (Sand.cc is preserved). Reversed on toggle off.",
+    desc = "Removes UIGradient, UIStroke and UIShadow from other ScreenGuis. Sand/Gravel/WindUI preserved.",
     onInstance = function(f, inst)
         local c = inst.ClassName
         if c ~= "UIGradient" and c ~= "UIStroke" and c ~= "UIShadow" then return end
-        local p = inst.Parent
-        while p do
-            if p:IsA("ScreenGui") then
-                local n = string.lower(p.Name)
-                if string.find(n, "sand", 1, true) or string.find(n, "windui", 1, true) then return end
-                break
-            end
-            p = p.Parent
-        end
+        if isProtectedGui(inst) then return end
         stashAndDetach(f, inst)
     end,
     cleanup = function(f) restoreStash(f) end,
@@ -1013,7 +1183,7 @@ defineFeature({
 
 defineFeature({
     key = "disableExplosions", title = "Disable Explosions",
-    desc = "Detaches Explosion instances on spawn (reversed on toggle off if still alive).",
+    desc = "Detaches Explosion instances on spawn.",
     onInstance = function(f, inst)
         if inst.ClassName == "Explosion" then
             stashAndDetach(f, inst)
@@ -1039,6 +1209,7 @@ defineFeature({
     end,
     tick = reassert,
 })
+
 defineFeature({
     key = "muteSounds", title = "Mute All Sounds",
     desc = "Mutes every Sound in the world (characters included).",
@@ -1197,6 +1368,112 @@ defineFeature({
     tick = reassert,
 })
 
+local function fflagReady()
+    return type(setfflag) == "function" and type(getfflag) == "function"
+end
+
+local function stripFFlagPrefix(flag)
+    if type(flag) ~= "string" then return nil end
+    return (flag
+        :gsub("^DFInt", "")
+        :gsub("^DFFlag", "")
+        :gsub("^FFlag", "")
+        :gsub("^FInt", "")
+        :gsub("^DFString", "")
+        :gsub("^FString", "")
+        :gsub("^DFLog", "")
+        :gsub("^FLog", ""))
+end
+
+local function parseFlagJSON(text)
+    if type(text) ~= "string" then return nil, "input is not a string" end
+    local trimmed = text:gsub("^%s+", ""):gsub("%s+$", "")
+    if trimmed == "" then return nil, "empty" end
+    local ok, data = pcall(function() return HttpService:JSONDecode(trimmed) end)
+    if not ok or type(data) ~= "table" then
+        return nil, "invalid JSON"
+    end
+    return data
+end
+
+local function applyFFlagTable(tbl)
+    if not fflagReady() then
+        warnOnce("setfflag/getfflag aren't available in this executor")
+        return 0, 0
+    end
+    local applied, failed = 0, 0
+    for flag, value in pairs(tbl) do
+        local bare = stripFFlagPrefix(flag)
+        if not bare then
+            failed = failed + 1
+        else
+            local ok = pcall(setfflag, bare, tostring(value))
+            if ok then applied = applied + 1 else failed = failed + 1 end
+        end
+    end
+    return applied, failed
+end
+
+local FFState = {
+    appliedTable = {},
+    prevValues  = {},
+}
+
+local function snapshotFlags(tbl)
+    FFState.prevValues = FFState.prevValues or {}
+    if not fflagReady() or type(tbl) ~= "table" then return end
+    for flag in pairs(tbl) do
+        local bare = stripFFlagPrefix(flag)
+        if bare and FFState.prevValues[bare] == nil then
+            local ok, cur = pcall(getfflag, bare)
+            if ok and cur ~= nil then FFState.prevValues[bare] = tostring(cur) end
+        end
+    end
+end
+
+defineFeature({
+    key = "fastFlags", title = "Fast Flags",
+    desc = "Inject custom Roblox fast flags from a JSON dictionary. Requires setfflag.",
+    params = { "fflagJSON" },
+    supported = function() return fflagReady() end,
+    apply = function(f)
+        if not fflagReady() then
+            warnOnce("Fast Flags needs setfflag/getfflag")
+            return
+        end
+        FFState.prevValues = FFState.prevValues or {}
+        local tbl, err = parseFlagJSON(State.fflagJSON)
+        if not tbl then
+            warnOnce("Fast Flags: " .. tostring(err))
+            return
+        end
+        FFState.appliedTable = tbl
+        snapshotFlags(tbl)
+        local applied, failed = applyFFlagTable(tbl)
+        f.lastCount = applied
+        if WindUI and WindUI.Notify then
+            pcall(function()
+                WindUI:Notify({
+                    Title = "Sand",
+                    Content = string.format(
+                        "Injected %d fastflag%s%s",
+                        applied,
+                        applied == 1 and "" or "s",
+                        failed > 0 and (" (" .. failed .. " failed)") or ""
+                    ),
+                    Duration = 4,
+                })
+            end)
+        end
+        if applied > 0 then
+            print(string.format("[Sand.cc] Fast Flags: injected %d fastflag(s)", applied))
+        end
+    end,
+    cleanup = function(f)
+        f.lastCount = nil
+    end,
+})
+
 defineFeature({
     key = "fpsUnlock", title = "FPS Cap",
     desc = "Sets the frame rate cap with setfpscap.",
@@ -1228,7 +1505,7 @@ defineFeature({
 
 defineFeature({
     key = "adaptive", title = "Adaptive Performance",
-    desc = "When FPS drops below the threshold, forces quality level 1 and shrinks the max distance (this session only).",
+    desc = "When FPS drops below the threshold, forces quality level 1 and shrinks the max distance.",
     params = { "fpsThreshold" },
     apply = function(f)
         if not f.conn then
@@ -1377,7 +1654,7 @@ defineFeature({
 
 defineFeature({
     key = "freezePlayers", title = "Freeze Distant Players",
-    desc = "Stops animations of other players beyond the max distance (they resume when you get close).",
+    desc = "Stops animations of other players beyond the max distance.",
     params = { "maxDistance", "freezeBehindCamera" },
     apply = function(f)
         f.frozen = f.frozen or {}
@@ -1440,7 +1717,7 @@ defineFeature({
 
 defineFeature({
     key = "anchorDistant", title = "Anchor Distant Objects",
-    desc = "Anchors unanchored parts beyond the max distance (they resume physics when you get close).",
+    desc = "Anchors unanchored parts beyond the max distance.",
     params = { "maxDistance", "anchorBehindCamera" },
     apply = function(f)
         f.anchored = f.anchored or weakKeys()
@@ -1451,10 +1728,9 @@ defineFeature({
         local limit = effectiveDistance()
         local origin = myRoot.Position
         local seen = {}
-        local all = Workspace:GetDescendants()
-        for i = 1, #all do
-            local inst = all[i]
-            if inst:IsA("BasePart") and inst.ClassName ~= "Terrain" and not inst.Anchored and not inCharacter(inst) then
+        eachCachedPart(function(inst)
+            if not alive or not f.active then return false end
+            if not inst.Anchored and not inCharacter(inst) then
                 local okPos, pos = pcall(function() return inst.Position end)
                 if okPos then
                     local d = (pos - origin).Magnitude
@@ -1474,8 +1750,8 @@ defineFeature({
                     end
                 end
             end
-            if i % 2500 == 0 then task.wait() end
-        end
+            return true
+        end)
         for inst in pairs(f.anchored) do
             if not seen[inst] or not inst.Parent then
                 if inst.Parent then pcall(setProp, inst, "Anchored", false) end
@@ -1494,7 +1770,7 @@ defineFeature({
 
 defineFeature({
     key = "renderDistance", title = "Render Distance",
-    desc = "Hides parts beyond the render distance slider (reverses when you get close). StreamingEnabled games are skipped.",
+    desc = "Hides parts beyond the render distance slider. StreamingEnabled games are skipped.",
     params = { "renderDistance" },
     apply = function(f)
         if Workspace.StreamingEnabled then return end
@@ -1508,10 +1784,9 @@ defineFeature({
         local origin = myRoot.Position
         local limit = State.renderDistance
         local seen = {}
-        local all = Workspace:GetDescendants()
-        for i = 1, #all do
-            local inst = all[i]
-            if inst:IsA("BasePart") and inst.ClassName ~= "Terrain" and not inCharacter(inst) then
+        eachCachedPart(function(inst)
+            if not alive or not f.active then return false end
+            if not inCharacter(inst) then
                 local okPos, pos = pcall(function() return inst.Position end)
                 if okPos then
                     local d = (pos - origin).Magnitude
@@ -1524,8 +1799,8 @@ defineFeature({
                     end
                 end
             end
-            if i % 2500 == 0 then task.wait() end
-        end
+            return true
+        end)
         for inst in pairs(f.hidden) do
             if not seen[inst] or not inst.Parent then
                 if inst.Parent then untouchOne(f, inst, "Transparency") end
@@ -1537,7 +1812,14 @@ defineFeature({
         if Workspace.StreamingEnabled then return end
         f:_run()
     end,
-    cleanup = function(f) f.hidden = nil end,
+    cleanup = function(f)
+        if f.hidden then
+            for inst in pairs(f.hidden) do
+                if inst.Parent then untouchOne(f, inst, "Transparency") end
+            end
+        end
+        f.hidden = nil
+    end,
 })
 
 defineFeature({
@@ -1591,13 +1873,13 @@ defineFeature({
 
 defineFeature({
     key = "throttleRemotes", title = "Throttle Remote Events",
-    desc = "Drops FireServer calls from game scripts above the limit per remote. Can break gameplay; hooks __namecall.",
+    desc = "Drops FireServer calls from game scripts above the limit per remote.",
     params = { "remoteLimit" },
     supported = function() return hookmetamethod ~= nil and getnamecallmethod ~= nil end,
     apply = function(f)
         if f.hooked then return end
         if not (hookmetamethod and getnamecallmethod) then
-            warnOnce("Throttle Remote Events needs hookmetamethod, which this executor doesn't have")
+            warnOnce("Throttle Remote Events needs hookmetamethod")
             return
         end
         local windows = weakKeys()
@@ -1682,7 +1964,7 @@ defineFeature({
 
 defineFeature({
     key = "skipDebrisScan", title = "Instant Debris Cleanup",
-    desc = "Detaches transient explosion effects as soon as they appear (reversed on toggle off if still alive).",
+    desc = "Detaches transient explosion effects as soon as they appear.",
     onInstance = function(f, inst)
         if inst.ClassName == "Explosion" then
             stashAndDetach(f, inst)
@@ -1703,11 +1985,10 @@ defineFeature({
 
 defineFeature({
     key = "hideFloatingUI", title = "Hide Floating UIs",
-    desc = "Disables all ScreenGuis except the Sand.cc interface.",
+    desc = "Disables all ScreenGuis except Sand.cc, Gravel.cc and WindUI.",
     onInstance = function(f, inst)
         if inst:IsA("ScreenGui") then
-            local n = string.lower(inst.Name)
-            if string.find(n, "sand", 1, true) then return end
+            if isProtectedName(inst.Name) then return end
             touch(f, inst, "Enabled", false)
         end
     end,
@@ -1744,10 +2025,8 @@ local function themeValid(name)
     return false
 end
 
---feat control
+--feat controls
 local Controls = {
-    graySkyId = { kind = "input", default = "rbxassetid://114666145996289", title = "Gray sky texture",
-        desc = "Asset id used on all six skybox faces.", placeholder = "rbxassetid://..." },
     greyboxKeywords = { kind = "input", multiline = true, default = gkeyword, title = "Grey-box keywords",
         desc = "Comma separated. Part names containing any of these get flattened.", placeholder = "chair, table, ..." },
     textureKeywords = { kind = "input", default = "sign, ui, hud, menu, button, fence", title = "Important texture keywords",
@@ -1759,7 +2038,7 @@ local Controls = {
     anchorBehindCamera = { kind = "toggle", default = false, title = "Also anchor objects behind the camera",
         desc = "Used by Anchor Distant Objects." },
     qualityLevel = { kind = "slider", default = 1, min = 1, max = 21, step = 1, title = "Quality level",
-        desc = "Used by Core Settings. 1 = lowest." },
+        desc = "Used by Core Settings." },
     fpsCap = { kind = "slider", default = 1000, min = 30, max = 1000, step = 10, title = "FPS cap value",
         desc = "Used by FPS Cap." },
     memoryThresholdMB = { kind = "slider", default = 100, min = 25, max = 1000, step = 25, title = "Cleanup threshold (MB)",
@@ -1781,11 +2060,18 @@ local Controls = {
     uiTheme = { kind = "theme", default = "Dark", title = "UI theme",
         desc = "Pick a WindUI theme. Saved and applied automatically." },
     uiTransparency = { kind = "slider", default = 0.15, min = 0, max = 1, step = 0.05, title = "UI transparency",
-        desc = "How transparent the window is. 0 = solid, 1 = fully transparent." },
+        desc = "How transparent the window is." },
     textCursor = { kind = "input", default = "_", title = "Text cursor",
-        desc = "The cursor shown in the RNG4 typing tag. Default is an underscore." },
-    textCursor2 = { kind = "input", default = "  ", title = "Text cursor 2",
-        desc = "The cursor shown when the RNG4 typing tag's cursor is hidden. Default is two spaces." },
+        desc = "idk it's a text cursor rng4 :v" },
+    textCursor2 = { kind = "input", default = "  ", title = "Text cursor2",
+        desc = "who needs ts 🥀" },
+    bgMusic = { kind = "toggle", default = true, title = "Background music",
+        desc = "Just plays Sugary Spire OST called ''Results!'' ig... :p" },
+    fflagJSON = { kind = "input", multiline = true,
+        default = '{\n  "FFlagDebugSkyGray": "True"\n}',
+        title = "Fast Flags (JSON)",
+        desc = "JSON dictionary of fast flags to inject when Apply is pressed.",
+        placeholder = '{\n  "FFlagDebugSkyGray": "True"\n}' },
 }
 
 local Defs = {}
@@ -1914,9 +2200,246 @@ end
 
 local function disableAll()
     for _, f in ipairs(Features) do
-        setState(f.key, false)
-        syncUI(f.key)
+        if f.key ~= "fastFlags" then
+            setState(f.key, false)
+            syncUI(f.key)
+        end
     end
+end
+local function notify(title, content, duration)
+    if WindUI then
+        pcall(function() WindUI:Notify({ Title = title, Content = content, Duration = duration or 3 }) end)
+    end
+end
+
+local function restoreFFlags()
+    if not fflagReady() then
+        notify("Sand", "setfflag isn't available in this executor :(")
+        return
+    end
+    local prevs = FFState.prevValues or {}
+    local total = 0
+    for _ in pairs(prevs) do total = total + 1 end
+    if total == 0 then
+        notify("Sand", "Nothing to restore, no flags were injected yet :p")
+        return
+    end
+    local restored, failed = 0, 0
+    for bare, prev in pairs(prevs) do
+        local ok = pcall(setfflag, bare, tostring(prev))
+        local good = ok
+        if ok and type(getfflag) == "function" then
+            local rok, now = pcall(getfflag, bare)
+            if rok and now ~= nil and tostring(now) ~= tostring(prev) then good = false end
+        end
+        if good then restored = restored + 1 else failed = failed + 1 end
+    end
+    FFState.prevValues = {}
+    FFState.appliedTable = {}
+    if State.fastFlags then
+        setState("fastFlags", false, true)
+        syncUI("fastFlags")
+    end
+    notify("Sand",
+        string.format("Restored %d fastflag%s to their original values%s. Rejoin if some look stuck :3",
+            restored, restored == 1 and "" or "s",
+            failed > 0 and (" (" .. failed .. " refused to budge)") or ""), 5)
+end
+local Presets = {}
+local presetQuery = ""
+local presetFile = cfg.folder .. "/presets.json"
+
+local function trimStr(v) return (tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+
+local function loadPresetFile()
+    Presets = {}
+    if not (fsReady() and isfile(presetFile)) then return end
+    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(presetFile)) end)
+    if ok and type(data) == "table" then
+        for name, json in pairs(data) do
+            if type(name) == "string" and type(json) == "string" then Presets[name] = json end
+        end
+    end
+end
+
+local function savePresetFile()
+    if not fsReady() then return false end
+    if makefolder and not (isfolder and isfolder(cfg.folder)) then pcall(makefolder, cfg.folder) end
+    local ok, err = pcall(writefile, presetFile, HttpService:JSONEncode(Presets))
+    if not ok then warnOnce("couldn't write " .. presetFile .. ": " .. tostring(err)) end
+    return ok
+end
+
+local function levenshtein(a, b)
+    local la, lb = #a, #b
+    if la == 0 then return lb end
+    if lb == 0 then return la end
+    local prev, cur = {}, {}
+    for j = 0, lb do prev[j] = j end
+    for i = 1, la do
+        cur[0] = i
+        for j = 1, lb do
+            local cost = (a:byte(i) == b:byte(j)) and 0 or 1
+            cur[j] = math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+        end
+        prev, cur = cur, prev
+    end
+    return prev[lb]
+end
+local function fuzzyScore(query, name)
+    local q, n = string.lower(trimStr(query)), string.lower(name)
+    if q == "" then return 1 end
+    if q == n then return 1000 end
+    if n:sub(1, #q) == q then return 800 - (#n - #q) end
+    local at = n:find(q, 1, true)
+    if at then return 600 - at - (#n - #q) end
+    local qi = 1
+    for i = 1, #n do
+        if qi <= #q and n:sub(i, i) == q:sub(qi, qi) then qi = qi + 1 end
+    end
+    if qi > #q then return 300 - (#n - #q) end
+    local d = levenshtein(q, n)
+    if d <= math.max(1, math.floor(#q / 3)) then return 200 - d * 20 end
+    return nil
+end
+
+local function searchPresets(query)
+    local out = {}
+    for name in pairs(Presets) do
+        local sc = fuzzyScore(query, name)
+        if sc then out[#out + 1] = { name = name, score = sc } end
+    end
+    table.sort(out, function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        return a.name:lower() < b.name:lower()
+    end)
+    return out
+end
+
+local function presetFlagCount(json)
+    local tbl = parseFlagJSON(json)
+    local n = 0
+    if tbl then for _ in pairs(tbl) do n = n + 1 end end
+    return n
+end
+
+local function exactPresetName(name)
+    local low = string.lower(trimStr(name))
+    for k in pairs(Presets) do
+        if string.lower(k) == low then return k end
+    end
+end
+
+local function presetListText()
+    local q = trimStr(presetQuery)
+    local hits = searchPresets(q)
+    local total = 0
+    for _ in pairs(Presets) do total = total + 1 end
+    if total == 0 then
+        return "the sand pile is empty :( type a name, then hit\nSave/Overwrite"
+    end
+    if #hits == 0 then
+        return "no matches for \"" .. q .. "\" :o (" .. total .. " preset" .. (total == 1 and "" or "s") .. " total)"
+    end
+    local lines = {}
+    for i, h in ipairs(hits) do
+        if i > 15 then
+            lines[#lines + 1] = "...and " .. (#hits - 15) .. " more grains"
+            break
+        end
+        local c = presetFlagCount(Presets[h.name])
+        lines[#lines + 1] = string.format("%s%s  (%d flag%s)", i == 1 and q ~= "" and "> " or "- ", h.name, c, c == 1 and "" or "s")
+    end
+    return table.concat(lines, "\n")
+end
+
+local function refreshPresetList()
+    local el = Elements.presetList
+    if not el then return end
+    local text = presetListText()
+    if not pcall(function() el:SetDesc(text) end) then
+        pcall(function() el:Set(text) end)
+    end
+end
+
+local function presetSave()
+    local name = trimStr(presetQuery):sub(1, 40)
+    if name == "" then
+        notify("Sand: Presets", "Type a name in the box first, silly :p")
+        return
+    end
+    if not fsReady() then
+        notify("Sand: Presets", "This executor has no file functions, can't save presets :(")
+        return
+    end
+    local tbl, err = parseFlagJSON(State.fflagJSON)
+    if not tbl then
+        notify("Sand: Presets", "Your flag JSON is " .. tostring(err) .. ", fix it before saving :o")
+        return
+    end
+    local existing = exactPresetName(name)
+    local key = existing or name
+    Presets[key] = State.fflagJSON
+    if savePresetFile() then
+        notify("Sand: Presets", (existing and "Overwrote " or "Stashed ") .. "\"" .. key .. "\" (" .. presetFlagCount(State.fflagJSON) .. " flags) in the sand pile :3")
+    else
+        notify("Sand: Presets", "Couldn't write the preset file (see console) :c")
+    end
+    refreshPresetList()
+end
+
+local function presetLoad()
+    local q = trimStr(presetQuery)
+    if q == "" then
+        notify("Sand: Presets", "Type (part of) a preset name first :p")
+        return
+    end
+    local hits = searchPresets(q)
+    if #hits == 0 then
+        notify("Sand: Presets", "No preset looks like \"" .. q .. "\" :o")
+        return
+    end
+    local name = hits[1].name
+    State.fflagJSON = Presets[name]
+    syncUI("fflagJSON")
+    scheduleSave()
+    local msg = "Loaded \"" .. name .. "\" into the JSON box"
+    if fflagReady() then
+        local tbl = parseFlagJSON(Presets[name])
+        if tbl then
+            snapshotFlags(tbl)
+            local applied, failed = applyFFlagTable(tbl)
+            FFState.appliedTable = tbl
+            msg = msg .. string.format(" and injected %d flag%s%s", applied, applied == 1 and "" or "s",
+                failed > 0 and (" (" .. failed .. " failed)") or "")
+        end
+    else
+        msg = msg .. " (setfflag missing, so nothing was injected)"
+    end
+    if hits[1].score < 1000 then msg = msg .. " [fuzzy match for \"" .. q .. "\"]" end
+    notify("Sand: Presets", msg .. " :3", 5)
+end
+
+local function presetDelete()
+    local q = trimStr(presetQuery)
+    if q == "" then
+        notify("Sand: Presets", "Type (part of) a preset name first :p")
+        return
+    end
+    local hits = searchPresets(q)
+    if #hits == 0 then
+        notify("Sand: Presets", "No preset looks like \"" .. q .. "\" :o")
+        return
+    end
+    if hits[1].score < 600 then
+        notify("Sand: Presets", "Not sure enough to delete. Did you mean \"" .. hits[1].name .. "\"? Type it out properly :v")
+        return
+    end
+    local name = hits[1].name
+    Presets[name] = nil
+    savePresetFile()
+    notify("Sand: Presets", "Yeeted \"" .. name .. "\" into the void :3")
+    refreshPresetList()
 end
 
 local function resetDefaults()
@@ -1926,16 +2449,11 @@ local function resetDefaults()
     end
     scheduleSave()
 end
-local function notify(title, content)
-    if WindUI then
-        pcall(function() WindUI:Notify({ Title = title, Content = content, Duration = 3 }) end)
-    end
-end
 
 --feat layout
 local Layout = {
     visuals = {
-        { "f", "graySky" }, { "c", "graySkyId" },
+        { "f", "graySky" },
         { "f", "fullBright" }, { "f", "simplifyLighting" },
         { "f", "removeFog" }, { "f", "removeAtmosphere" },
         { "f", "killPostFX" },
@@ -2065,7 +2583,7 @@ Runtime.rng4Convo = {
       "or roblox & lag", },
     { typesp = "2", "u know what's underrated?", "the sound of sand", "crunch crunch",
       "satisfying as heck", "u can't change my mind", },
-    { "me: 'i'll make a clean script'", "also me:", "*2000+ lines later*", "what is organization?",
+    { "me: 'i'll make a clean script'", "also me:", "*3000+ lines later*", "what is organization?",
       "i don't know her", ":s", },
     { typesp = "1.5", "this script contains:", " - 100% pure sand", " - premium fps",
       " - secret sauce", " - questionable code", " - the tears of ur gpu",
@@ -2088,7 +2606,7 @@ Runtime.rng4Convo = {
       "present me wants", "to add more jokes", "priorities :v", },
     { typesp = "1.5", "if u see me in game", "no u didn't", "if u see me optimizing",
       "no u didn't", "if u see me with good fps", "that's just skill", "sand skill", ";D", },
-    { "bro ts code is 2000+ lines long :(", "I ''can't'' do dis shi :[", "plz heseelepp me {displayname}", },
+    { "bro ts code is 3000+ lines long :(", "I ''can't'' do dis shi :[", "plz heseelepp me {displayname}", },
     { typesp = "1.5", "ur probably using this", "to optimize some game", "that runs at 15 fps",
       "i respect that", "get smooth nerd >:D", "haha i'm just joking", "or am i?", ";)", },
     { typesp = "1.5", "psst", "hey", "over here", "yea u", "wanna know a secret?",
@@ -2126,6 +2644,106 @@ local function subside_I_I_I_I_I_()
     if not ok2 or type(sizeY) ~= "number" then return true end
     if sizeY < 50 then return true end
     return false
+end
+
+local BGM = {
+    sound = nil,
+    pauseSound = nil,
+    playSound = nil,
+    holder = nil,
+    isActive = false,
+    initialized = false,
+    bgmurl = "https://raw.githubusercontent.com/hm5650/Sand/main/assets/Music/RESULTS.mp3",
+}
+
+local function ensureBGMAsset()
+    if not fsReady() then return nil end
+    if type(getcustomasset) ~= "function" then return nil end
+    local baseFolder  = cfg.folder .. "/assets"
+    local musicFolder = baseFolder .. "/Music"
+    local filePath    = musicFolder .. "/RESULTS.mp3"
+    if makefolder then
+        if not (isfolder and isfolder(baseFolder))  then pcall(makefolder, baseFolder)  end
+        if not (isfolder and isfolder(musicFolder)) then pcall(makefolder, musicFolder) end
+    end
+    if not (isfile and isfile(filePath)) then
+        local ok, data = pcall(function() return game:HttpGet(BGM.bgmurl) end)
+        if not ok or type(data) ~= "string" or #data == 0 then
+            warnOnce("couldn't download background music")
+            return nil
+        end
+        local okW = pcall(writefile, filePath, data)
+        if not okW then
+            warnOnce("couldn't save background music to " .. filePath)
+            return nil
+        end
+    end
+    local okA, asset = pcall(getcustomasset, filePath)
+    if not okA or type(asset) ~= "string" then
+        warnOnce("getcustomasset failed for background music")
+        return nil
+    end
+    return asset
+end
+
+local function initBGM()
+    if BGM.initialized then return end
+    BGM.initialized = true
+    local asset = ensureBGMAsset()
+    if not asset then return end
+    local holder = Instance.new("Folder")
+    holder.Name = "SandBGM"
+    holder.Parent = LocalPlayer
+    BGM.holder = holder
+
+    local music = Instance.new("Sound")
+    music.Name = "SandBGMTrack"
+    music.SoundId = asset
+    music.Looped = true
+    music.Volume = 0.35
+    music.Parent = holder
+    BGM.sound = music
+
+    local pauseSnd = Instance.new("Sound")
+    pauseSnd.Name = "SandBGMPause"
+    pauseSnd.SoundId = "rbxassetid://12221944"
+    pauseSnd.Volume = 0.5
+    pauseSnd.Parent = holder
+    BGM.pauseSound = pauseSnd
+
+    local playSnd = Instance.new("Sound")
+    playSnd.Name = "SandBGMPlay"
+    playSnd.SoundId = "rbxassetid://12221976"
+    playSnd.Volume = 0.5
+    playSnd.Parent = holder
+    BGM.playSound = playSnd
+end
+
+local function setBGMActive(active)
+    if active == BGM.isActive then return end
+    BGM.isActive = active
+    if active then
+        if BGM.sound then pcall(function() BGM.sound:Play() end) end
+        if BGM.playSound then pcall(function() BGM.playSound:Play() end) end
+    else
+        if BGM.sound then pcall(function() BGM.sound:Pause() end) end
+        if BGM.pauseSound then pcall(function() BGM.pauseSound:Play() end) end
+    end
+end
+
+local function updateBGM()
+    if not BGM.sound then return end
+    local shouldPlay = State.bgMusic and alive and not subside_I_I_I_I_I_()
+    setBGMActive(shouldPlay)
+end
+
+local function destroyBGM()
+    if BGM.holder then
+        pcall(function() BGM.holder:Destroy() end)
+        BGM.holder = nil
+    end
+    BGM.sound, BGM.pauseSound, BGM.playSound = nil, nil, nil
+    BGM.isActive, BGM.initialized = false, false
 end
 
 local function getPlayerInfo()
@@ -2182,7 +2800,7 @@ local function startRNG4()
             end)
         end
     end
-    task.defer(function()
+    task_("rng4Cursor", function()
         while rng4.tag and alive do
             if not subside_I_I_I_I_I_() then
                 rng4.cursorVisible = not rng4.cursorVisible
@@ -2343,7 +2961,7 @@ local function startRNG4()
         rng4.isErasing = false
     end
 
-    task.defer(function()
+    task_("rng4Main", function()
         while rng4.tag and alive do
             while subside_I_I_I_I_I_() do task.wait(0.5) end
             if #availableIndices == 0 then
@@ -2432,7 +3050,22 @@ local function addControl(tab, key)
     end
     tab:Space()
 end
-
+--[[
+     _      ___         ____  ______
+    | | /| / (_)__  ___/ / / / /  _/
+    | |/ |/ / / _ \/ _  / /_/ // /  
+    |__/|__/_/_//_/\_,_/\____/___/
+    
+    Roblox UI Library for scripts
+    
+    To view the source code, see the `src/` folder on the official GitHub repository.
+    
+    Author: Footagesus (Footages, .ftgs, oftgs)
+    Github: https://github.com/Footagesus/WindUI
+    Discord: https://discord.gg/ftgs-development-hub-1300692552005189632
+    License: MIT
+]]
+-- ui neuron activation starter
 local function buildUI()
     local ok, lib = pcall(function()
         return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
@@ -2478,6 +3111,7 @@ local function buildUI()
     applyTransparency(State.uiTransparency)
 
     local optimization = PolyWindow:Section({ Title = "Optimization" })
+    local Engine = PolyWindow:Section({ Title = "Engine" })
     local Sand = PolyWindow:Section({ Title = "Sand" })
     local Tabs = {
         visuals = optimization:Tab({ Title = "Visuals", Icon = "eye", Border = true }),
@@ -2485,6 +3119,7 @@ local function buildUI()
         performance = optimization:Tab({ Title = "Performance", Icon = "zap", Border = true }),
         players = optimization:Tab({ Title = "Workspace", Icon = "globe", Border = true }),
         network = optimization:Tab({ Title = "Network & UI", Icon = "wifi", Border = true }),
+        fastflags = Engine:Tab({ Title = "Fast Flags", Icon = "settings-2", Border = true }),
         theme = Sand:Tab({ Title = "Theme", Icon = "palette", Border = true }),
         config = Sand:Tab({ Title = "Config", Icon = "save", Border = true }),
         about = Sand:Tab({ Title = "About", Icon = "info", Border = true }),
@@ -2497,6 +3132,134 @@ local function buildUI()
                 addControl(Tabs[tabKey], item[2])
             end
         end
+    end
+    local ff = Tabs.fastflags
+    if ff then
+        ff:Paragraph({
+            Title = "Fast Flags",
+            Desc = "Paste a JSON dictionary of fast flags and apply them. "
+                .. "Values are coerced to strings"
+                .. "Most flags require a rejoin to take effect :1",
+        })
+        ff:Space()
+
+        local supported = fflagReady()
+        Elements.fflagJSON = ff:Input({
+            Title = "Fast Flags (JSON)",
+            Desc = supported
+                and "Example: { \"FFlagDebugSkyGray\": \"True\", \"DFIntTaskSchedulerTargetFps\": \"240\" }"
+                or  "setfflag isn't available in this executor, so this can't be applied.",
+            Value = State.fflagJSON,
+            Placeholder = '{\n  "FFlagDebugSkyGray": "True"\n}',
+            Type = "Textarea",
+            Callback = function(v) setState("fflagJSON", v) end,
+        })
+        ff:Space()
+
+        ff:Button({
+            Title = "Apply Fast Flags",
+            Icon = "zap",
+            Justify = "Center",
+            Callback = function()
+                if not fflagReady() then
+                    notify("Sand", "setfflag isn't available in this executor.")
+                    return
+                end
+                local tbl, err = parseFlagJSON(State.fflagJSON)
+                if not tbl then
+                    notify("Sand", "Invalid JSON: " .. tostring(err))
+                    return
+                end
+                snapshotFlags(tbl)
+                local applied, failed = applyFFlagTable(tbl)
+                FFState.appliedTable = tbl
+                notify("Sand", string.format(
+                    "Injected %d fastflag%s%s",
+                    applied,
+                    applied == 1 and "" or "s",
+                    failed > 0 and (" (" .. failed .. " failed)") or ""
+                ))
+                print(string.format("[Sand.cc] Injected %d fastflag(s), %d failed", applied, failed))
+            end,
+        })
+        ff:Space()
+
+        ff:Button({
+            Title = "Restore Prev FFlags",
+            Desc = "Puts every flag back to what it was before Sand touched it (and tells you how it went).",
+            Icon = "rotate-ccw",
+            Justify = "Center",
+            Callback = restoreFFlags,
+        })
+        ff:Space()
+
+        ff:Button({
+            Title = "Rejoin Server",
+            Desc = "Teleports you back to this same server\n(useful after applying flags).",
+            Icon = "log-out",
+            Justify = "Center",
+            Callback = function()
+                local TeleportService = game:GetService("TeleportService")
+                local ok, err = pcall(function()
+                    TeleportService:TeleportToPlaceInstance(
+                        game.PlaceId,
+                        game.JobId,
+                        LocalPlayer
+                    )
+                end)
+                if not ok then
+                    notify("Sand", "Rejoin failed: " .. tostring(err))
+                end
+            end,
+        })
+        ff:Space()
+        ff:Section({ Title = "Presets (save ur flags in the sand pile :3)" })
+        loadPresetFile()
+        Elements.presetName = ff:Input({
+            Title = "Preset name / search",
+            Desc = "Type a name to save, or part of one to find it (typos are fine, it's fuzzy :v)",
+            Value = "",
+            Placeholder = "my cool flags",
+            Type = "Input",
+            Callback = function(v)
+                presetQuery = tostring(v or "")
+                refreshPresetList()
+            end,
+        })
+        ff:Space()
+        ff:Button({
+            Title = "Save/Overwrite",
+            Desc = "Stores the JSON above under that name.\nSame name = overwrites it.",
+            Icon = "save",
+            Justify = "Center",
+            Callback = presetSave,
+        })
+        ff:Button({
+            Title = "Load",
+            Desc = "Fuzzy finds the best match,\nputs it in the JSON box and injects it :p",
+            Icon = "folder-open",
+            Justify = "Center",
+            Callback = presetLoad,
+        })
+        ff:Button({
+            Title = "Delete",
+            Desc = "Yeets the matching preset forever\n(only if the match is solid).",
+            Icon = "trash-2",
+            Justify = "Center",
+            Color = Color3.fromHex("#ff4830"),
+            Callback = presetDelete,
+        })
+        ff:Space()
+        Elements.presetList = ff:Paragraph({
+            Title = "Save list",
+            Desc = presetListText(),
+        })
+        ff:Space()
+
+        ff:Paragraph({
+            Title = "Warner",
+            Desc = "Bannable flags are your responsibility, don't do dumb stuff plzzz",
+        })
     end
 
     local themeTab = Tabs.theme
@@ -2542,6 +3305,13 @@ local function buildUI()
             Callback = function(v) setState("textCursor2", v) end,
         })
         themeTab:Space()
+        themeTab:Toggle({
+            Title = Controls.bgMusic.title,
+            Desc = Controls.bgMusic.desc,
+            Value = State.bgMusic,
+            Callback = function(v) setState("bgMusic", v) end,
+        })
+        themeTab:Space()
         themeTab:Button({
             Title = "Reset appearance",
             Icon = "rotate-ccw",
@@ -2577,10 +3347,15 @@ local function buildUI()
         notify("Sand.cc", n > 0 and ("Loaded " .. n .. " settings.") or "No saved file found.")
     end })
     ct:Space()
-    ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
-        for _, f in ipairs(Features) do setState(f.key, true) syncUI(f.key) end
-        notify("Sand.cc", "All features switched on.")
-    end })
+ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
+    for _, f in ipairs(Features) do
+        if f.key ~= "fastFlags" then
+            setState(f.key, true)
+            syncUI(f.key)
+        end
+    end
+    notify("Sand.cc", "All features switched on")
+end })
     ct:Space()
     ct:Button({ Title = "Disable everything", Icon = "power", Justify = "Center", Callback = function()
         disableAll()
@@ -2595,31 +3370,24 @@ local function buildUI()
     ct:Button({ Title = "Unload Sand.cc", Icon = "shredder", Justify = "Center",
         Color = Color3.fromHex("#ff4830"), Callback = function() cfg.unload() end })
 
-local at = Tabs.about
-at:Section({ Title = "Sand.cc", TextSize = 24 })
-at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n\nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n\nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3", TextSize = 16 })
-at:Space()
-at:Paragraph({
-    Title = "README.md",
-    Desc = "head over to my readme plz",
-})
-at:Space()
+    local at = Tabs.about
+    at:Section({ Title = "Sand.cc", TextSize = 24 })
+    at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n\nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n\nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3", TextSize = 16 })
+    at:Space()
+    at:Paragraph({
+        Title = "Code",
+        Desc = "head over to my readme plz....... or my source :p",
+    })
 at:Button({
-    Title = "copy da README.md",
-    Desc = "a file to uhhhh read......",
-    Icon = "copy",
+    Title = "copy da README.md URL",
+    Desc = "uhhhh read me.... ig :s",
+    Icon = "github",
     Justify = "Center",
     Callback = function()
         setclipboard("https://github.com/hm5650/Sand/blob/main/README.md")
-        notify("Sand.cc", "README.md copied!! :3")
+        notify("Sand.cc", "README.md URL copied!! :3")
     end
 })
-at:Space()
-at:Paragraph({
-    Title = "Source Code",
-    Desc = "https://github.com/hm5650/Sand/tree/main",
-})
-at:Space()
 at:Button({
     Title = "copy da Source URL",
     Desc = "the whole repo :o",
@@ -2630,11 +3398,48 @@ at:Button({
         notify("Sand.cc", "Source URL copied!! :3")
     end
 })
-    task.defer(function()
-        task.wait(0.5)
-        startRNG4()
-    end)
+at:Space()
+at:Button({
+    Title = "Also Try Out ''Gravel.cc''!! :DD",
+    Desc = "Gravel.cc for the best gravel",
+    Icon = "zap",
+    Justify = "Center",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/HBSS/refs/heads/main/HBSS.lua"))()
+        notify("Sand.cc", "Gravel.cc STARTED!?1!1!")
+    end
+})
+at:Space()
+at:Paragraph({
+    Title = "Credits",
+    Desc = "Credits to other creators",
+})
+at:Paragraph({
+    Title = "Sand: UI",
+    Desc = "UI: WindUI (Footagesus)\n\nAnd that's it :1\ntoo lazy to type more stuff",
+})
+at:Space()
+at:Paragraph({
+    Title = "Updatelog",
+    Desc = "Update history and changes\n\nSand (DD/MM/YYYY)",
+})
+at:Paragraph({
+    Title = "Sand (05/10/2025)",
+    Desc = "Howdy! im existing now :3",
+})
+task_("startRNG4", function()
+    task.wait(0.5)
+    startRNG4()
+end)
 end
+
+--tsu
+--[[
+at:Paragraph({
+    Title = "Optiz (DD/10/2025)",
+    Desc = "",
+})
+]]
 
 local function weirdflash()
     local TweenService = game:GetService("TweenService")
@@ -2684,9 +3489,12 @@ local function weirdflash()
     pcall(function() flashSound:Destroy() end)
 end
 
+--unlder
 local function unload()
     if not alive then return end
     alive = false
+    killthreads()
+
     pcall(weirdflash)
     env.Saaaaaaaaaaaaaaaaaaaaaaand_ = false
     for prop, ot in pairs(Orig) do
@@ -2708,10 +3516,12 @@ local function unload()
         Runtime.rng4.tag = nil
     end
     Runtime.rng4 = nil
+    pcall(destroyBGM)
     if addedConn then
         pcall(function() addedConn:Disconnect() end)
         addedConn = nil
     end
+    pcall(stopPartCache)
     if PolyWindow then pcall(function() PolyWindow:Destroy() end) end
     PolyWindowRef = nil
     if env.__SandCC == cfg then env.__SandCC = nil end
@@ -2730,13 +3540,19 @@ cfg.load = function()
 end
 cfg.disableAll = disableAll
 cfg.enableAll = function()
-    for _, f in ipairs(Features) do setState(f.key, true) syncUI(f.key) end
+    for _, f in ipairs(Features) do
+        if f.key ~= "fastFlags" then
+            setState(f.key, true)
+            syncUI(f.key)
+        end
+    end
 end
 cfg.unload = unload
 env.__SandCC = cfg
 
 local autoloaded = 0
 if cfg.autoload ~= false then autoloaded = loadSaved(false) end
+task_("startPartCache", startPartCache)
 
 if cfg.createwindui ~= false then
     local ok, err = pcall(buildUI)
@@ -2746,6 +3562,15 @@ if cfg.createwindui ~= false then
         notify("Sand.cc", "Autoloaded " .. autoloaded .. " saved settings.")
     end
 end
+task_("initBGM", function()
+    initBGM()
+end)
+task_("bgmUpdater", function()
+    while alive do
+        task.wait(0.25)
+        pcall(updateBGM)
+    end
+end)
 
 if PolyWindow and PolyWindow.OnDestroy then
     PolyWindow:OnDestroy(function()
@@ -2755,11 +3580,12 @@ if PolyWindow and PolyWindow.OnDestroy then
 end
 
 reconcile()
-task.spawn(function()
+task_("mainTick", function()
     while alive do
         task.wait(clamp(State.interval, 3, 60))
         if not alive then break end
         if subside_I_I_I_I_I_() then continue end
+        pcall(pruneDead)
         for _, f in ipairs(Features) do
             if f.active and f.tick then
                 local ok, err = pcall(f.tick, f)
@@ -2770,6 +3596,7 @@ task.spawn(function()
 end)
 
 _(cos(1))
+end
 return cfg
 --fin
 --[[
