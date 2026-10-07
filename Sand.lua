@@ -1559,7 +1559,14 @@ local FFState = {
     appliedTable = {},
     prevValues  = {},
     busy = false,
+    failedList = {},
+    refreshFailed = nil,
 }
+
+local function setFailedFlags(list)
+    FFState.failedList = list or {}
+    if FFState.refreshFailed then pcall(FFState.refreshFailed) end
+end
 
 local function ffNotify(content, duration)
     if WindUI and WindUI.Notify then
@@ -1588,21 +1595,29 @@ local function applyFFlagTable(tbl)
     FFState.prevValues = FFState.prevValues or {}
     local slice = newSlicer()
     local applied, failed = 0, 0
+    local failedNames = {}
     for flag, value in pairs(tbl) do
         local bare = stripFFlagPrefix(flag)
         if not bare then
             failed = failed + 1
+            failedNames[#failedNames + 1] = tostring(flag)
         else
             if FFState.prevValues[bare] == nil then
                 local ok, cur = pcall(getfflag, bare)
                 if ok and cur ~= nil then FFState.prevValues[bare] = tostring(cur) end
             end
             local ok = pcall(setfflag, bare, tostring(value))
-            if ok then applied = applied + 1 else failed = failed + 1 end
+            if ok then
+                applied = applied + 1
+            else
+                failed = failed + 1
+                failedNames[#failedNames + 1] = tostring(flag)
+            end
         end
         slice()
     end
-    return applied, failed
+    table.sort(failedNames)
+    return applied, failed, failedNames
 end
 
 local function runFFlagJob(tbl, done)
@@ -1611,18 +1626,20 @@ local function runFFlagJob(tbl, done)
         return false
     end
     FFState.busy = true
+    setFailedFlags({})
     local count = 0
     for _ in pairs(tbl) do count = count + 1 end
     if count > 100 then
         ffNotify(string.format("Applying %d flags in chunks.. wait a sec :p", count), 4)
     end
     task.spawn(function()
-        local ok, applied, failed = pcall(applyFFlagTable, tbl)
+        local ok, applied, failed, failedNames = pcall(applyFFlagTable, tbl)
         FFState.busy = false
         if not ok then
             ffNotify("Flag injection errored: " .. tostring(applied), 5)
             return
         end
+        setFailedFlags(failedNames)
         FFState.appliedTable = tbl
         if done then done(applied, failed) end
     end)
@@ -2584,6 +2601,31 @@ local function presetListText()
     return table.concat(lines, "\n")
 end
 
+local function failedListText()
+    local list = FFState.failedList or {}
+    if #list == 0 then
+        return "Nothing failed :3 (this clears itself every time flags get applied)"
+    end
+    local maxShown = 60
+    local lines = {}
+    for i = 1, math.min(#list, maxShown) do
+        lines[i] = "- " .. list[i]
+    end
+    if #list > maxShown then
+        lines[#lines + 1] = "..and " .. (#list - maxShown) .. " more"
+    end
+    return #list .. " failed:\n" .. table.concat(lines, "\n")
+end
+
+FFState.refreshFailed = function()
+    local el = Elements.failedFlagList
+    if not el then return end
+    local text = failedListText()
+    if not pcall(function() el:SetDesc(text) end) then
+        pcall(function() el:Set(text) end)
+    end
+end
+
 local function refreshPresetList()
     local el = Elements.presetList
     if not el then return end
@@ -3421,6 +3463,12 @@ local function buildUI()
         })
         ff:Space()
 
+        Elements.failedFlagList = ff:Paragraph({
+            Title = "Failed flags",
+            Desc = failedListText(),
+        })
+        ff:Space()
+
         ff:Button({
             Title = "Restore Prev FFlags",
             Desc = "Puts every flag back to what it was before Sand touched it (and tells you how it went).",
@@ -3666,7 +3714,7 @@ at:Paragraph({
 })
 at:Paragraph({
     Title = "Sand (07/10/2025)",
-    Desc = "sum bug fixes ig & new stuff\nAdded: Remove Player Clothing\nAdded: Hide Held Tools\nAdded: Disable Fire/Smoke/Sparkles\nAdded: Hide ForceField Bubbles\nBugs Fixed: 9",
+    Desc = "sum bug fixes ig & new stuff\nAdded: Remove Player Clothing\nAdded: Hide Held Tools\nAdded: Disable Fire/Smoke/Sparkles\nAdded: Hide ForceField Bubbles\nFixed: Sum fastflag issues\nBugs Fixed: 9",
 })
 task_("startRNG4", function()
     task.wait(0.5)
