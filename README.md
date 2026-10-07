@@ -171,6 +171,7 @@ A quick-reference of features that Sand.cc has :p
 
 - **Fast Flags JSON Input** - Paste a JSON dictionary of fast flags to inject
 - **Apply Fast Flags** - Injects the flags (requires setfflag/getfflag)
+- **Failed List** - Shows a list of failed FFlags
 - **Restore Prev FFlags** - Puts every flag back to what it was before Sand touched it
 - **Rejoin Server** - Teleports you back to this same server (useful after applying flags)
 - **Presets** - Save, load, and delete fast flag presets in the sand pile
