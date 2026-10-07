@@ -68,7 +68,6 @@ A quick-reference of features that Sand.cc has :p
 ## Visuals Tab
 
 - **Gray Sky** - Replaces sky, atmosphere and clouds with a flat gray skybox
-  - Custom gray sky texture id input
 - **Full Bright** - Bright, flat lighting with global shadows off
 - **Simplify Lighting** - Soft shadows, environment lighting, fog and post-processing off
 - **Remove Fog** - Pushes fog far away so it never shows
