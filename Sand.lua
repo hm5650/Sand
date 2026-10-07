@@ -3968,7 +3968,6 @@ task_("bgmUpdater", function()
     end
 end)
 
--- Random open-button text (re-rolls whenever the window is closed & button reappears)
 task_("rngOpenButton", function()
     local openBtn = PolyWindow.OpenButtonMain and PolyWindow.OpenButtonMain.Button
     if not openBtn then return end
@@ -3988,7 +3987,6 @@ task_("rngOpenButton", function()
         end
     end
     if not label then return end
-    -- seed with a real title right away
     label.Text = actasgravel()
     local function isActuallyVisible(obj)
         local cur = obj
@@ -4003,7 +4001,6 @@ task_("rngOpenButton", function()
     while alive and label.Parent do
         local nowVisible = isActuallyVisible(label)
         if nowVisible and not wasVisible then
-            -- window was just closed, reroll the text
             label.Text = actasgravel()
         end
         wasVisible = nowVisible
