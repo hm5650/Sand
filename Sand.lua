@@ -27,7 +27,7 @@ print([[
                            --############+...                              
                                                                            
                                                                            
-                                 "I can't aim 4 u :/"                                  
+                                 "am i just bloxstrap in luau :o"                                  
                                                                            
                                                     - Gpssickle                       
 ]])
@@ -257,15 +257,90 @@ local function guiParent(gui)
     local ok = pcall(function() gui.Parent = (gethui and gethui()) or CoreGui end)
     if not ok or not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 end
-
 local istg = { "sand", "gravel", "windui", "window", }
+local totallynotfromgravel = {
+    ":l",
+    ":u",
+    "owo",
+    ":3",
+    ">:3",
+    ";3",
+    ":D",
+    ">:D",
+    ":p",
+    ":P",
+    "^w^",
+    "^_^",
+    "o_o",
+    "o.0",
+    "O.o",
+    "n_n",
+    ":o",
+    ":O",
+    ":0",
+    ":l",
+    ":7",
+    ":1",
+    ":v",
+    ":c",
+    ":s",
+    "c:",
+    ":b",
+    ":x",
+    ":9",
+    ";_;",
+    ":^",
+    ":/",
+    "=_=",
+    ">_>",
+    "<_<",
+    ">:1",
+    ">:2",
+    "gravel?",
+    "uwu",
+}
+local typesheet = "________________________________"
+local buttonTitleIndex = nil
+local function actasgravel()
+    if #totallynotfromgravel == 0 then return ":3" end
+    local idx = math.random(1, #totallynotfromgravel)
+    if #totallynotfromgravel > 1 and idx == buttonTitleIndex then
+        idx = (idx % #totallynotfromgravel) + 1
+    end
+    buttonTitleIndex = idx
+    return totallynotfromgravel[idx]
+end
+local donthurtgravelplz = {
+    "48621826482727",
+    "37276227227277",
+    "2918736637167",
+    "9373632872636482",
+    "8472627274737273",
+    "927172638798",
+    "391716637363627", 
+    "392727384883828",
+    "392828837_828_88_38828_83",
+}
+
+local function isNumericUnderscoreName(name)
+    if name:match("^%d+_%d+_%d+_%d+_%d+$") then return true end
+    if name:match("^%d+_%d+_%d+_%d+$") then return true end
+    if name:match("^%d+_%d+_%d+$") then return true end
+    return false
+end
+
 local function isProtectedName(name)
     local n = string.lower(tostring(name or ""))
     for i = 1, #istg do
         if string.find(n, istg[i], 1, true) then return true end
     end
+    for i = 1, #donthurtgravelplz do
+        if string.find(n, donthurtgravelplz[i], 1, true) then return true end
+    end
+    if isNumericUnderscoreName(n) then return true end
     return false
 end
+
 local function isProtectedGui(inst)
     if not inst then return false end
     local p = inst
@@ -1498,33 +1573,40 @@ defineFeature({
 })
 
 defineFeature({
-    key = "coreSettings", title = "Core Settings",
-    desc = "Lowest quality level, mesh and texture detail, always-on physics throttle.",
+    key = "coreSettings",
+    title = "Core Settings",
+    desc = "Lowest quality level, mesh and texture detail.",
     params = { "qualityLevel" },
     apply = function(f)
         local level = Runtime.quality or State.qualityLevel
-        local okR, rendering = pcall(function() return settings().Rendering end)
+        local okR, rendering = pcall(function()
+            return settings().Rendering
+        end)
         if okR and rendering then
             local ql = level
-            local okE, item = pcall(function() return Enum.QualityLevel:FromValue(level) end)
-            if okE and item then ql = item end
+            local okE, item = pcall(function()
+                return Enum.QualityLevel:FromValue(level)
+            end)
+            if okE and item then
+                ql = item
+            end
             stouch(f, rendering, "QualityLevel", ql)
-            stouch(f, rendering, "EagerBulkExecution", true)
-            stouch(f, rendering, "EnableFRM", true)
-            pcall(function() stouch(f, rendering, "MeshPartDetailLevel", Enum.MeshPartDetailLevel.Level01) end)
-            pcall(function() stouch(f, rendering, "TextureQuality", Enum.TextureQuality.Low) end)
-            pcall(function() stouch(f, rendering, "ViewMode", Enum.RenderingMode.Automatic) end)
+            pcall(function()
+                stouch(f, rendering, "MeshPartDetailLevel",
+                    Enum.MeshPartDetailLevel.Level01)
+            end)
+            pcall(function()
+                stouch(f, rendering, "TextureQuality",
+                    Enum.TextureQuality.Low)
+            end)
         end
-        local okP, physics = pcall(function() return settings().Physics end)
+        local okP, physics = pcall(function()
+            return settings().Physics
+        end)
         if okP and physics then
             stouch(f, physics, "AllowSleep", true)
-            pcall(function()
-                stouch(f, physics, "PhysicsEnvironmentalThrottle", Enum.EnviromentalPhysicsThrottle.Always)
-            end)
-            pcall(function() stouch(f, physics, "MaxSimulationTime", 0.1) end)
         end
     end,
-    tick = reassert,
 })
 
 local function fflagReady()
@@ -2436,13 +2518,43 @@ local function loadSaved(live)
     return n
 end
 
+local function syncAllUI()
+    for key in pairs(Defs) do
+        syncUI(key)
+    end
+end
+
+local ignorethesebsplz = {
+    uiTheme = true,
+    uiTransparency = true,
+    textCursor = true,
+    textCursor2 = true,
+    bgMusic = true,
+}
+
 local function disableAll()
     for _, f in ipairs(Features) do
         if f.key ~= "fastFlags" then
-            setState(f.key, false)
-            syncUI(f.key)
+            State[f.key] = false
         end
     end
+    for key, def in pairs(Defs) do
+        if def.kind ~= "toggle" and not ignorethesebsplz[key] then
+            State[key] = def.default
+        end
+    end
+    reconcile()
+    syncAllUI()
+end
+
+local function enableAll()
+    for _, f in ipairs(Features) do
+        if f.key ~= "fastFlags" then
+            State[f.key] = true
+        end
+    end
+    reconcile()
+    syncAllUI()
 end
 local function notify(title, content, duration)
     if WindUI then
@@ -2863,7 +2975,7 @@ Runtime.rng4Convo = {
       "or roblox & lag", },
     { typesp = "2", "u know what's underrated?", "the sound of sand", "crunch crunch",
       "satisfying as heck", "u can't change my mind", },
-    { "me: 'i'll make a clean script'", "also me:", "*3000+ lines later*", "what is organization?",
+    { "me: 'i'll make a clean script'", "also me:", "*4000+ lines later*", "what is organization?",
       "i don't know her", ":s", },
     { typesp = "1.5", "this script contains:", " - 100% pure sand", " - premium fps",
       " - secret sauce", " - questionable code", " - the tears of ur gpu",
@@ -2886,7 +2998,7 @@ Runtime.rng4Convo = {
       "present me wants", "to add more jokes", "priorities :v", },
     { typesp = "1.5", "if u see me in game", "no u didn't", "if u see me optimizing",
       "no u didn't", "if u see me with good fps", "that's just skill", "sand skill", ";D", },
-    { "bro ts code is 3000+ lines long :(", "I ''can't'' do dis shi :[", "plz heseelepp me {displayname}", },
+    { "bro ts code is 4000+ lines long :(", "I ''can't'' do dis shi :[", "plz heseelepp me {displayname}", },
     { typesp = "1.5", "ur probably using this", "to optimize some game", "that runs at 15 fps",
       "i respect that", "get smooth nerd >:D", "haha i'm just joking", "or am i?", ";)", },
     { typesp = "1.5", "psst", "hey", "over here", "yea u", "wanna know a secret?",
@@ -3375,7 +3487,7 @@ local function buildUI()
         Size = windowSize,
         HideSearchBar = false,
         OpenButton = {
-            Title = ":3",
+            Title = typesheet,
             CornerRadius = UDim.new(0, 8),
             StrokeThickness = 1,
             Enabled = true,
@@ -3633,19 +3745,14 @@ local function buildUI()
     end })
     ct:Space()
 ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
-    for _, f in ipairs(Features) do
-        if f.key ~= "fastFlags" then
-            setState(f.key, true)
-            syncUI(f.key)
-        end
-    end
+    enableAll()
     notify("Sand", "All features switched on")
 end })
-    ct:Space()
-    ct:Button({ Title = "Disable everything", Icon = "power", Justify = "Center", Callback = function()
-        disableAll()
-        notify("Sand", "All features switched off.")
-    end })
+ct:Space()
+ct:Button({ Title = "Disable everything", Icon = "power", Justify = "Center", Callback = function()
+    disableAll()
+    notify("Sand", "All features switched off.")
+end })
     ct:Space()
     ct:Button({ Title = "Reset to defaults", Icon = "rotate-ccw", Justify = "Center", Callback = function()
         resetDefaults()
@@ -3858,6 +3965,49 @@ task_("bgmUpdater", function()
     while alive do
         task.wait(0.25)
         pcall(updateBGM)
+    end
+end)
+
+-- Random open-button text (re-rolls whenever the window is closed & button reappears)
+task_("rngOpenButton", function()
+    local openBtn = PolyWindow.OpenButtonMain and PolyWindow.OpenButtonMain.Button
+    if not openBtn then return end
+    local label
+    for _, d in ipairs(openBtn:GetDescendants()) do
+        if d:IsA("TextLabel") and d.Text == typesheet then
+            label = d
+            break
+        end
+    end
+    if not label then
+        for _, d in ipairs(openBtn:GetDescendants()) do
+            if d:IsA("TextLabel") then
+                label = d
+                break
+            end
+        end
+    end
+    if not label then return end
+    -- seed with a real title right away
+    label.Text = actasgravel()
+    local function isActuallyVisible(obj)
+        local cur = obj
+        while cur do
+            if cur:IsA("GuiObject") and not cur.Visible then return false end
+            if cur:IsA("LayerCollector") and not cur.Enabled then return false end
+            cur = cur.Parent
+        end
+        return true
+    end
+    local wasVisible = isActuallyVisible(label)
+    while alive and label.Parent do
+        local nowVisible = isActuallyVisible(label)
+        if nowVisible and not wasVisible then
+            -- window was just closed, reroll the text
+            label.Text = actasgravel()
+        end
+        wasVisible = nowVisible
+        task.wait(0.1)
     end
 end)
 
