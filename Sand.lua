@@ -1640,10 +1640,58 @@ end
 local FFState = {
     appliedTable = {},
     prevValues  = {},
+    unknownPrev = {},
+    prevNames = {},
     busy = false,
     failedList = {},
     refreshFailed = nil,
 }
+
+local ffOrigPath = cfg.folder .. "/fflag_originals.json"
+local function ffFsOk()
+    return type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+end
+
+local function saveFFOriginals()
+    if not ffFsOk() then return end
+    if makefolder and not (isfolder and isfolder(cfg.folder)) then pcall(makefolder, cfg.folder) end
+    local data, any = {}, false
+    for k, v in pairs(FFState.prevValues) do
+        data[k] = { v = v, n = FFState.prevNames[k] }
+        any = true
+    end
+    if not any then
+        if isfile(ffOrigPath) then
+            if type(delfile) == "function" then
+                pcall(delfile, ffOrigPath)
+            else
+                pcall(writefile, ffOrigPath, "{}")
+            end
+        end
+        return
+    end
+    local okV, ver = pcall(function() return version() end)
+    if okV and type(ver) == "string" then data.__ver = ver end
+    local ok, err = pcall(function() writefile(ffOrigPath, HttpService:JSONEncode(data)) end)
+    if not ok then warnOnce("couldn't save flag originals: " .. tostring(err)) end
+end
+
+local function loadFFOriginals()
+    if not (ffFsOk() and isfile(ffOrigPath)) then return end
+    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(ffOrigPath)) end)
+    if not ok or type(data) ~= "table" then return end
+    local okV, ver = pcall(function() return version() end)
+    if okV and type(ver) == "string" and type(data.__ver) == "string" and data.__ver ~= ver then
+        return
+    end
+    for k, e in pairs(data) do
+        if type(k) == "string" and type(e) == "table" and e.v ~= nil and FFState.prevValues[k] == nil then
+            FFState.prevValues[k] = tostring(e.v)
+            if type(e.n) == "string" then FFState.prevNames[k] = e.n end
+        end
+    end
+end
+loadFFOriginals()
 
 local function setFailedFlags(list)
     FFState.failedList = list or {}
@@ -1669,6 +1717,38 @@ local function newSlicer()
     end
 end
 
+local function readFlag(full, bare)
+    local tries = { bare }
+    if type(full) == "string" and full ~= bare then tries[#tries + 1] = full end
+    for _, name in ipairs(tries) do
+        local ok, v = pcall(getfflag, name)
+        if ok and v ~= nil and tostring(v) ~= "" then
+            return tostring(v), name
+        end
+    end
+    return nil
+end
+
+local function ensurePruned(slice)
+    if FFState.pruned then return end
+    FFState.pruned = true
+    local drop = {}
+    for bare, prev in pairs(FFState.prevValues) do
+        local name = FFState.prevNames[bare] or bare
+        local ok, now = pcall(getfflag, name)
+        if ok and now ~= nil and tostring(now) ~= ""
+            and tostring(now):lower() == tostring(prev):lower() then
+            drop[#drop + 1] = bare
+        end
+        slice()
+    end
+    for _, bare in ipairs(drop) do
+        FFState.prevValues[bare] = nil
+        FFState.prevNames[bare] = nil
+    end
+    if #drop > 0 then saveFFOriginals() end
+end
+
 local function applyFFlagTable(tbl)
     if not fflagReady() then
         warnOnce("setfflag/getfflag aren't available in this executor")
@@ -1676,6 +1756,7 @@ local function applyFFlagTable(tbl)
     end
     FFState.prevValues = FFState.prevValues or {}
     local slice = newSlicer()
+    ensurePruned(slice)
     local applied, failed = 0, 0
     local failedNames = {}
     for flag, value in pairs(tbl) do
@@ -1684,9 +1765,14 @@ local function applyFFlagTable(tbl)
             failed = failed + 1
             failedNames[#failedNames + 1] = tostring(flag)
         else
-            if FFState.prevValues[bare] == nil then
-                local ok, cur = pcall(getfflag, bare)
-                if ok and cur ~= nil then FFState.prevValues[bare] = tostring(cur) end
+            if FFState.prevValues[bare] == nil and not FFState.unknownPrev[bare] then
+                local cur, usedName = readFlag(flag, bare)
+                if cur ~= nil then
+                    FFState.prevValues[bare] = cur
+                    FFState.prevNames[bare] = usedName
+                else
+                    FFState.unknownPrev[bare] = true
+                end
             end
             local ok = pcall(setfflag, bare, tostring(value))
             if ok then
@@ -1717,6 +1803,7 @@ local function runFFlagJob(tbl, done)
     task.spawn(function()
         local ok, applied, failed, failedNames = pcall(applyFFlagTable, tbl)
         FFState.busy = false
+        saveFFOriginals()
         if not ok then
             ffNotify("Flag injection errored: " .. tostring(applied), 5)
             return
@@ -2571,38 +2658,124 @@ local function restoreFFlags()
         notify("Sand", "Still chewing on the last batch, give it a sec :o")
         return
     end
+    if not FFState.pruned then
+        FFState.busy = true
+        task.spawn(function()
+            pcall(ensurePruned, newSlicer())
+            FFState.busy = false
+            restoreFFlags()
+        end)
+        return
+    end
     local prevs = FFState.prevValues or {}
-    local total = 0
-    for _ in pairs(prevs) do total = total + 1 end
-    if total == 0 then
-        notify("Sand", "Nothing to restore, no flags were injected yet :p")
+    local names = {}
+    for bare in pairs(prevs) do names[#names + 1] = bare end
+    table.sort(names)
+    local unknown = 0
+    for _ in pairs(FFState.unknownPrev or {}) do unknown = unknown + 1 end
+    if #names == 0 then
+        if unknown > 0 then
+            notify("Sand", string.format(
+                "%d flag%s had no readable original value (getfflag gave nothing), so there's nothing to put back. Rejoin to reset %s :p",
+                unknown, unknown == 1 and "" or "s", unknown == 1 and "it" or "them"), 6)
+            FFState.unknownPrev = {}
+            FFState.appliedTable = {}
+        else
+            notify("Sand", "Nothing to restore, no flags were injected yet :p")
+        end
         return
     end
     FFState.busy = true
     task.spawn(function()
         local slice = newSlicer()
-        local restored, failed = 0, 0
-        for bare, prev in pairs(prevs) do
-            local ok = pcall(setfflag, bare, tostring(prev))
-            local good = ok
-            if ok and type(getfflag) == "function" then
-                local rok, now = pcall(getfflag, bare)
-                if rok and now ~= nil and tostring(now) ~= tostring(prev) then good = false end
-            end
-            if good then restored = restored + 1 else failed = failed + 1 end
-            slice()
+        local restored, unverified = 0, 0
+        local pending = names
+        local function sameValue(a, b)
+            return tostring(a):lower() == tostring(b):lower()
         end
-        FFState.prevValues = {}
-        FFState.appliedTable = {}
+        local function trySet(bare, prev)
+            local cands = { bare }
+            local alt = FFState.prevNames[bare]
+            if alt and alt ~= bare then cands[#cands + 1] = alt end
+            local setWorked = false
+            for _, name in ipairs(cands) do
+                local okS = pcall(setfflag, name, tostring(prev))
+                if okS then
+                    setWorked = true
+                    local rok, now = pcall(getfflag, name)
+                    if not rok or now == nil or sameValue(now, prev) then
+                        return "ok"
+                    end
+                end
+            end
+            return setWorked and "unverified" or "fail"
+        end
+
+        local pass = 0
+        local okRun, errRun = pcall(function()
+            for p = 1, 2 do
+                pass = p
+                local stillBad = {}
+                for _, bare in ipairs(pending) do
+                    local prev = prevs[bare]
+                    local res = trySet(bare, prev)
+                    if res == "unverified" and p == 1 then
+                        stillBad[#stillBad + 1] = bare
+                    elseif res == "ok" then
+                        restored = restored + 1
+                        prevs[bare] = nil
+                        FFState.prevNames[bare] = nil
+                    elseif res == "unverified" then
+                        unverified = unverified + 1
+                        prevs[bare] = nil
+                        FFState.prevNames[bare] = nil
+                        print(string.format("[Sand.cc] restore %s -> %s: set ok but read-back differs", bare, tostring(prev)))
+                    else
+                        stillBad[#stillBad + 1] = bare
+                        if p == 2 then
+                            print(string.format("[Sand.cc] restore %s -> %s: setfflag errored", bare, tostring(prev)))
+                        end
+                    end
+                    slice()
+                end
+                pending = stillBad
+                if #pending == 0 then break end
+                if p == 1 then task.wait(0.15) end
+            end
+        end)
+        if not okRun then
+            print("[Sand.cc] restore errored: " .. tostring(errRun))
+        end
+
+        local failed = #pending
+        FFState.unknownPrev = {}
+        saveFFOriginals()
+        if failed == 0 then
+            FFState.appliedTable = {}
+        end
         FFState.busy = false
-        if State.fastFlags then
-            setState("fastFlags", false, true)
-            syncUI("fastFlags")
+        pcall(function()
+            if State.fastFlags then
+                setState("fastFlags", false, true)
+                syncUI("fastFlags")
+            end
+        end)
+        local extra = ""
+        if failed > 0 then
+            extra = extra .. " (" .. failed .. " refused to budge, press again to retry)"
+        end
+        if unverified > 0 then
+            extra = extra .. " (" .. unverified .. " set but didn't read back the same, rejoin to be sure)"
+        end
+        if unknown > 0 then
+            extra = extra .. " + " .. unknown .. " had no readable original so rejoin for those"
+        end
+        if not okRun then
+            extra = extra .. " (hit an error, check console)"
         end
         notify("Sand",
             string.format("Restored %d fastflag%s to their original values%s. Rejoin if some look stuck :3",
-                restored, restored == 1 and "" or "s",
-                failed > 0 and (" (" .. failed .. " refused to budge)") or ""), 5)
+                restored, restored == 1 and "" or "s", extra), 7)
     end)
 end
 local Presets = {}
@@ -3016,6 +3189,32 @@ Runtime.rng4Convo = {
       "said no one ever", },
     { typesp = "2", "u think ur ready", "for the Sand experience?", "u think ur ready",
       "for the OPTIMIZATION??", "u think ur ready", "for the FPS??", "probably not :P", },
+    -- New sand-specific jokes
+    { "sand gets everywhere", "even in ur scripts", "especially in ur scripts", ":s", },
+    { typesp = "1.5", "i'm not like gravel", "gravel is just", "big sand", "i'm the refined stuff", ":3", },
+    { "if u squeeze sand", "does it become", "a sandcastle?", "or just", "sad sand", ":c", },
+    { typesp = "2", "Sand.cc v1 was", "just a print statement", "and it was", "the best version", "don't @ me", },
+    { "u ever just", "watch sand fall", "through an hourglass", "and think", "'that's me'", "same", },
+    { "the beach called", "they want their", "sand back", "i said no", ":v", },
+    { typesp = "1.5", "sand is just", "really small rocks", "and rocks are just", "big sand", "circular logic", "my brain hurts", },
+    { "why did the sand", "cross the road?", "to get to the", "other beach", "i'll see myself out", },
+    { "if u put sand", "in ur shoes", "that's just", "gravel with extra steps", ":7", },
+    { typesp = "3", mode = "2", "SAND", "SAND", "SAND", "SAND", "SAND", "SAND", "BEACH", "BEACH", "BEACH", },
+    { "sand + water", "= sandcastle", "sand + fire", "= glass", "sand + me", "= script", "science :o", },
+    { typesp = "2", "i'm not a beach", "i'm a lifestyle", "a sandy lifestyle", "join me :3", },
+    { "what's a sand's", "favorite music?", "heavy metal", "because rocks :p", },
+    { typesp = "1.5", "i was gonna make", "a gravel joke", "but i'm not", "that kind of script", "i have standards", },
+    { "sandbox mode", "is literally", "named after me", "i'm famous :D", },
+    { typesp = "2.5", "If u pour sand", "into a computer", "it becomes", "a sandbox", "i don't make the rules", },
+    { "i dream of", "a world", "where all scripts", "are free", "and all sand", "is soft", "utopia :3", },
+    { "gravel: i'm rough", "sand: i'm smooth", "brick: i'm brick", "we're all", "just rocks", "at the end of the day", },
+    { typesp = "1.5", "u know ur", "a sand person", "when u", "find sand", "in ur bed", "and u accept it", },
+    { "sand puns", "are easy", "they just", "slip through", "ur fingers", ":p", },
+    { typesp = "2", "the sand", "the myth", "the legend", "Sand.cc", "coming to", "a game near u", },
+    { "if ur reading this", "ur officially", "a grain of sand", "welcome to", "the beach", ":D", },
+    { typesp = "1.5", "I once tried", "to count sand", "I got to", "like 3", "then gave up", "respect the grind", },
+    { "sand is just", "the earth's", "dandruff", "and i'm", "the shampoo", ":v", },
+    { typesp = "2", "no sand", "no life", "sand life", "sand forever", "sandy vibes", ":3", },
 }
 
 Runtime.rng4Defaults = {
@@ -3583,7 +3782,7 @@ local function buildUI()
 
         ff:Button({
             Title = "Restore Prev FFlags",
-            Desc = "Puts every flag back to what it was before Sand touched it (and tells you how it went).",
+            Desc = "Puts every flag back to what it was before Sand touched it (and tells you how it went)\n(wouldn't restore every flags some might fail)",
             Icon = "rotate-ccw",
             Justify = "Center",
             Callback = restoreFFlags,
@@ -3592,7 +3791,7 @@ local function buildUI()
 
         ff:Button({
             Title = "Rejoin Server",
-            Desc = "Teleports you back to this same server\n(useful after applying flags).",
+            Desc = "Teleports you back to this same server\n(useful after applying flags)",
             Icon = "log-out",
             Justify = "Center",
             Callback = function()
@@ -3655,7 +3854,7 @@ local function buildUI()
 
         ff:Paragraph({
             Title = "Warner",
-            Desc = "Bannable flags are your responsibility,\ndon't do dumb stuff plzzz\n \nAlso if you want to stop Sand injecting fastflags automatically on every game you join just close Roblox and reopen it :p",
+            Desc = "Bannable flags are your responsibility,\ndon't do dumb stuff plzzz\n \nAlso if you want to completely get rid of the injected flags just close Roblox and reopen it :p",
         })
     end
 
@@ -3764,7 +3963,7 @@ end })
 
     local at = Tabs.about
     at:Section({ Title = "Sand", TextSize = 24 })
-    at:Section({ Title = "A random script that hates making things pretty and likes fps :p\n \nalso this script is better verison of the deprecated script called ''Optiz'' if yer wondering :1\n \nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3\n \nif u used a snippet pweaty pwease credit me 3;", TextSize = 16 })
+    at:Section({ Title = "A random script that hates making things pretty and likes fps and also extremely reversible :p\n \nalso this script is better verison of the deprecated script i made called ''Optiz'' if yer wondering :1\n \nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3\n \nif u used a snippet pweaty pwease credit me 3;", TextSize = 16 })
     at:Space()
     at:Paragraph({
         Title = "Code",
@@ -3822,6 +4021,10 @@ at:Paragraph({
 at:Paragraph({
     Title = "Sand (07/10/2025)",
     Desc = "sum bug fixes ig & new stuff\nAdded: Remove Player Clothing\nAdded: Hide Held Tools\nAdded: Disable Fire/Smoke/Sparkles\nAdded: Hide ForceField Bubbles\nFixed: Sum fastflag issues\nBugs Fixed: 9",
+})
+at:Paragraph({
+    Title = "Sand (08/10/2025)",
+    Desc = "idk restore prev flags broke\nFixed: Restore Prev Flag Button\nBugs Fixed: 4",
 })
 task_("startRNG4", function()
     task.wait(0.5)
