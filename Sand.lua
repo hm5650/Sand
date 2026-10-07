@@ -1613,17 +1613,31 @@ local function fflagReady()
     return type(setfflag) == "function" and type(getfflag) == "function"
 end
 
-local function stripFFlagPrefix(flag)
+local function fflagprefix(flag)
     if type(flag) ~= "string" then return nil end
     return (flag
         :gsub("^DFInt", "")
         :gsub("^DFFlag", "")
+        :gsub("^DFString", "")
+        :gsub("^DFLog", "")
+        :gsub("^DFDouble", "")
+        :gsub("^DFBool", "")
         :gsub("^FFlag", "")
         :gsub("^FInt", "")
-        :gsub("^DFString", "")
         :gsub("^FString", "")
-        :gsub("^DFLog", "")
-        :gsub("^FLog", ""))
+        :gsub("^FLog", "")
+        :gsub("^FDouble", "")
+        :gsub("^FBool", "")
+        :gsub("^FValue", "")
+        :gsub("^DFValue", "")
+        :gsub("^FLua", "")
+        :gsub("^DFLua", "")
+        :gsub("^FNet", "")
+        :gsub("^DFNet", "")
+        :gsub("^FStringArray", "")
+        :gsub("^DFStringArray", "")
+        :gsub("^FIntArray", "")
+        :gsub("^DFIntArray", ""))
 end
 
 local function parseFlagJSON(text)
@@ -1760,7 +1774,7 @@ local function applyFFlagTable(tbl)
     local applied, failed = 0, 0
     local failedNames = {}
     for flag, value in pairs(tbl) do
-        local bare = stripFFlagPrefix(flag)
+        local bare = fflagprefix(flag)
         if not bare then
             failed = failed + 1
             failedNames[#failedNames + 1] = tostring(flag)
@@ -3189,7 +3203,6 @@ Runtime.rng4Convo = {
       "said no one ever", },
     { typesp = "2", "u think ur ready", "for the Sand experience?", "u think ur ready",
       "for the OPTIMIZATION??", "u think ur ready", "for the FPS??", "probably not :P", },
-    -- New sand-specific jokes
     { "sand gets everywhere", "even in ur scripts", "especially in ur scripts", ":s", },
     { typesp = "1.5", "i'm not like gravel", "gravel is just", "big sand", "i'm the refined stuff", ":3", },
     { "if u squeeze sand", "does it become", "a sandcastle?", "or just", "sad sand", ":c", },
@@ -3782,7 +3795,7 @@ local function buildUI()
 
         ff:Button({
             Title = "Restore Prev FFlags",
-            Desc = "Puts every flag back to what it was before Sand touched it (and tells you how it went)\n(wouldn't restore every flags some might fail)",
+            Desc = "Puts every flag back to what it was before Sand touched it (and tells you how it went)\n(wouldn't restore every flags, some might fail)",
             Icon = "rotate-ccw",
             Justify = "Center",
             Callback = restoreFFlags,
