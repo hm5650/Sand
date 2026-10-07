@@ -1555,39 +1555,78 @@ local function parseFlagJSON(text)
     return data
 end
 
+local FFState = {
+    appliedTable = {},
+    prevValues  = {},
+    busy = false,
+}
+
+local function ffNotify(content, duration)
+    if WindUI and WindUI.Notify then
+        pcall(function()
+            WindUI:Notify({ Title = "Sand", Content = content, Duration = duration or 4 })
+        end)
+    end
+end
+
+local ffslice = 0.006
+local function newSlicer()
+    local last = os.clock()
+    return function()
+        if os.clock() - last >= ffslice then
+            task.wait()
+            last = os.clock()
+        end
+    end
+end
+
 local function applyFFlagTable(tbl)
     if not fflagReady() then
         warnOnce("setfflag/getfflag aren't available in this executor")
         return 0, 0
     end
+    FFState.prevValues = FFState.prevValues or {}
+    local slice = newSlicer()
     local applied, failed = 0, 0
     for flag, value in pairs(tbl) do
         local bare = stripFFlagPrefix(flag)
         if not bare then
             failed = failed + 1
         else
+            if FFState.prevValues[bare] == nil then
+                local ok, cur = pcall(getfflag, bare)
+                if ok and cur ~= nil then FFState.prevValues[bare] = tostring(cur) end
+            end
             local ok = pcall(setfflag, bare, tostring(value))
             if ok then applied = applied + 1 else failed = failed + 1 end
         end
+        slice()
     end
     return applied, failed
 end
 
-local FFState = {
-    appliedTable = {},
-    prevValues  = {},
-}
-
-local function snapshotFlags(tbl)
-    FFState.prevValues = FFState.prevValues or {}
-    if not fflagReady() or type(tbl) ~= "table" then return end
-    for flag in pairs(tbl) do
-        local bare = stripFFlagPrefix(flag)
-        if bare and FFState.prevValues[bare] == nil then
-            local ok, cur = pcall(getfflag, bare)
-            if ok and cur ~= nil then FFState.prevValues[bare] = tostring(cur) end
-        end
+local function runFFlagJob(tbl, done)
+    if FFState.busy then
+        ffNotify("Still chewing on the last batch, give it a sec :o", 3)
+        return false
     end
+    FFState.busy = true
+    local count = 0
+    for _ in pairs(tbl) do count = count + 1 end
+    if count > 100 then
+        ffNotify(string.format("Applying %d flags in chunks.. wait a sec :p", count), 4)
+    end
+    task.spawn(function()
+        local ok, applied, failed = pcall(applyFFlagTable, tbl)
+        FFState.busy = false
+        if not ok then
+            ffNotify("Flag injection errored: " .. tostring(applied), 5)
+            return
+        end
+        FFState.appliedTable = tbl
+        if done then done(applied, failed) end
+    end)
+    return true
 end
 
 defineFeature({
@@ -1600,33 +1639,19 @@ defineFeature({
             warnOnce("Fast Flags needs setfflag/getfflag")
             return
         end
-        FFState.prevValues = FFState.prevValues or {}
         local tbl, err = parseFlagJSON(State.fflagJSON)
         if not tbl then
             warnOnce("Fast Flags: " .. tostring(err))
             return
         end
-        FFState.appliedTable = tbl
-        snapshotFlags(tbl)
-        local applied, failed = applyFFlagTable(tbl)
-        f.lastCount = applied
-        if WindUI and WindUI.Notify then
-            pcall(function()
-                WindUI:Notify({
-                    Title = "Sand",
-                    Content = string.format(
-                        "Injected %d fastflag%s%s",
-                        applied,
-                        applied == 1 and "" or "s",
-                        failed > 0 and (" (" .. failed .. " failed)") or ""
-                    ),
-                    Duration = 4,
-                })
-            end)
-        end
-        if applied > 0 then
-            print(string.format("[Sand.cc] Fast Flags: injected %d fastflag(s)", applied))
-        end
+        runFFlagJob(tbl, function(applied, failed)
+            f.lastCount = applied
+            ffNotify(string.format("Injected %d fastflag%s%s", applied, applied == 1 and "" or "s",
+                failed > 0 and (" (" .. failed .. " failed)") or ""))
+            if applied > 0 then
+                print(string.format("[Sand.cc] Fast Flags: injected %d fastflag(s)", applied))
+            end
+        end)
     end,
     cleanup = function(f)
         f.lastCount = nil
@@ -2413,6 +2438,10 @@ local function restoreFFlags()
         notify("Sand", "setfflag isn't available in this executor :(")
         return
     end
+    if FFState.busy then
+        notify("Sand", "Still chewing on the last batch, give it a sec :o")
+        return
+    end
     local prevs = FFState.prevValues or {}
     local total = 0
     for _ in pairs(prevs) do total = total + 1 end
@@ -2420,26 +2449,32 @@ local function restoreFFlags()
         notify("Sand", "Nothing to restore, no flags were injected yet :p")
         return
     end
-    local restored, failed = 0, 0
-    for bare, prev in pairs(prevs) do
-        local ok = pcall(setfflag, bare, tostring(prev))
-        local good = ok
-        if ok and type(getfflag) == "function" then
-            local rok, now = pcall(getfflag, bare)
-            if rok and now ~= nil and tostring(now) ~= tostring(prev) then good = false end
+    FFState.busy = true
+    task.spawn(function()
+        local slice = newSlicer()
+        local restored, failed = 0, 0
+        for bare, prev in pairs(prevs) do
+            local ok = pcall(setfflag, bare, tostring(prev))
+            local good = ok
+            if ok and type(getfflag) == "function" then
+                local rok, now = pcall(getfflag, bare)
+                if rok and now ~= nil and tostring(now) ~= tostring(prev) then good = false end
+            end
+            if good then restored = restored + 1 else failed = failed + 1 end
+            slice()
         end
-        if good then restored = restored + 1 else failed = failed + 1 end
-    end
-    FFState.prevValues = {}
-    FFState.appliedTable = {}
-    if State.fastFlags then
-        setState("fastFlags", false, true)
-        syncUI("fastFlags")
-    end
-    notify("Sand",
-        string.format("Restored %d fastflag%s to their original values%s. Rejoin if some look stuck :3",
-            restored, restored == 1 and "" or "s",
-            failed > 0 and (" (" .. failed .. " refused to budge)") or ""), 5)
+        FFState.prevValues = {}
+        FFState.appliedTable = {}
+        FFState.busy = false
+        if State.fastFlags then
+            setState("fastFlags", false, true)
+            syncUI("fastFlags")
+        end
+        notify("Sand",
+            string.format("Restored %d fastflag%s to their original values%s. Rejoin if some look stuck :3",
+                restored, restored == 1 and "" or "s",
+                failed > 0 and (" (" .. failed .. " refused to budge)") or ""), 5)
+    end)
 end
 local Presets = {}
 local presetQuery = ""
@@ -2600,20 +2635,26 @@ local function presetLoad()
     syncUI("fflagJSON")
     scheduleSave()
     local msg = "Loaded \"" .. name .. "\" into the JSON box"
+    local score = hits[1].score
+    local function finish(m)
+        if score < 1000 then m = m .. " [fuzzy match for \"" .. q .. "\"]" end
+        notify("Sand", m .. " :3", 5)
+    end
     if fflagReady() then
         local tbl = parseFlagJSON(Presets[name])
         if tbl then
-            snapshotFlags(tbl)
-            local applied, failed = applyFFlagTable(tbl)
-            FFState.appliedTable = tbl
-            msg = msg .. string.format(" and injected %d flag%s%s", applied, applied == 1 and "" or "s",
-                failed > 0 and (" (" .. failed .. " failed)") or "")
+            if not runFFlagJob(tbl, function(applied, failed)
+                finish(msg .. string.format(" and injected %d flag%s%s", applied, applied == 1 and "" or "s",
+                    failed > 0 and (" (" .. failed .. " failed)") or ""))
+            end) then
+                finish(msg .. " (busy, press Apply when the current batch finishes)")
+            end
+            return
         end
     else
         msg = msg .. " (setfflag missing, so nothing was injected)"
     end
-    if hits[1].score < 1000 then msg = msg .. " [fuzzy match for \"" .. q .. "\"]" end
-    notify("Sand", msg .. " :3", 5)
+    finish(msg)
 end
 
 local function presetDelete()
@@ -3367,16 +3408,15 @@ local function buildUI()
                     notify("Sand", "Invalid JSON: " .. tostring(err))
                     return
                 end
-                snapshotFlags(tbl)
-                local applied, failed = applyFFlagTable(tbl)
-                FFState.appliedTable = tbl
-                notify("Sand", string.format(
-                    "Injected %d fastflag%s%s",
-                    applied,
-                    applied == 1 and "" or "s",
-                    failed > 0 and (" (" .. failed .. " failed)") or ""
-                ))
-                print(string.format("[Sand.cc] Injected %d fastflag(s), %d failed", applied, failed))
+                runFFlagJob(tbl, function(applied, failed)
+                    notify("Sand", string.format(
+                        "Injected %d fastflag%s%s",
+                        applied,
+                        applied == 1 and "" or "s",
+                        failed > 0 and (" (" .. failed .. " failed)") or ""
+                    ))
+                    print(string.format("[Sand.cc] Injected %d fastflag(s), %d failed", applied, failed))
+                end)
             end,
         })
         ff:Space()
@@ -3455,7 +3495,7 @@ local function buildUI()
 
         ff:Paragraph({
             Title = "Warner",
-            Desc = "Bannable flags are your responsibility,\ndon't do dumb stuff plzzz\n \nAlso if you want to stop Sand injecting fastflags completely just close Roblox and reopen it :p",
+            Desc = "Bannable flags are your responsibility,\ndon't do dumb stuff plzzz\n \nAlso if you want to stop Sand injecting fastflags automatically on every game you join just close Roblox and reopen it :p",
         })
     end
 
