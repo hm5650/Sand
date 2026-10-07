@@ -34,7 +34,7 @@ local SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650
     folder = "Sand.cc", -- folder used for the autosave file (default: "Sand.cc")
     file = "autosave.json", -- filename inside the folder (default: "autosave.json")
 })
--- you can out this in your autoexecute folder if you wanna :p
+-- you can put this in your autoexecute folder if you wanna :p
 -- also this script is underdevelopment like gravel.cc >_>
 ```
 
