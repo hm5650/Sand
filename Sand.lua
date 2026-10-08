@@ -61,9 +61,7 @@ local passed = ...
 local cfg = (type(passed) == "table" and passed) or (type(env.cfg) == "table" and env.cfg) or {}
 if cfg.createwindui == nil then cfg.createwindui = true end
 if cfg.autoload == nil then cfg.autoload = true end
-if cfg.autosave == nil then cfg.autosave = true end
 cfg.folder = cfg.folder or "Sand.cc"
-cfg.file = cfg.file or "autosave.json"
 if type(env.__SandCC) == "table" and type(env.__SandCC.unload) == "function" then
     pcall(env.__SandCC.unload)
 end
@@ -257,7 +255,7 @@ local function guiParent(gui)
     local ok = pcall(function() gui.Parent = (gethui and gethui()) or CoreGui end)
     if not ok or not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 end
-local istg = { "sand", "gravel", "windui", "window", }
+local istg = { "sand", "gravel", "WindUI", "Window", }
 local totallynotfromgravel = {
     ":l",
     ":u",
@@ -326,6 +324,7 @@ local function isNumericUnderscoreName(name)
     if name:match("^%d+_%d+_%d+_%d+_%d+$") then return true end
     if name:match("^%d+_%d+_%d+_%d+$") then return true end
     if name:match("^%d+_%d+_%d+$") then return true end
+    if name:match("^%d%d%d%d%d%d%d%d%d%d+_%w+_") then return true end
     return false
 end
 
@@ -352,6 +351,41 @@ local function isProtectedGui(inst)
     end
     return false
 end
+local GRAVEL_ENV_KEY = "blablablahblahblahhblahblahhGraaaaaaaaaaaaaaaaaaaaaaaveel_"
+local function gravelLoaded()
+    local ok, t = pcall(function() return env[GRAVEL_ENV_KEY] end)
+    return ok and type(t) == "table"
+end
+local GRAVEL_NAMES = {
+    PlayerHighlight = true, DesyncWeld = true, ProxyWeld = true,
+    ESPLabel = true, ESPBox = true, HealthBG = true, HealthFill = true, HeadDot = true,
+    FOVCircle = true, RingFrame = true, TriggerFOVRing = true, QTContainer = true, TouchFeedback = true,
+}
+local function isGravelGuiName(name)
+    local n = string.lower(tostring(name or ""))
+    if string.find(n, "gravel", 1, true) or string.find(n, "windui", 1, true) then return true end
+    for i = 1, #donthurtgravelplz do
+        if string.find(n, donthurtgravelplz[i], 1, true) then return true end
+    end
+    return isNumericUnderscoreName(n)
+end
+local gravelCache = setmetatable({}, { __mode = "k" })
+local function isGravelInstance(inst)
+    if inst == nil or State.gravelProtect == false then return false end
+    local cached = gravelCache[inst]
+    if cached ~= nil then return cached end
+    local res = false
+    pcall(function()
+        local nm = inst.Name
+        if GRAVEL_NAMES[nm] or isNumericUnderscoreName(nm) then res = true return end
+        local par = inst.Parent
+        if par and isNumericUnderscoreName(par.Name) then res = true return end
+        local layer = inst:FindFirstAncestorWhichIsA("LayerCollector")
+        if layer and isGravelGuiName(layer.Name) then res = true end
+    end)
+    gravelCache[inst] = res
+    return res
+end
 
 local function effectiveDistance() return math.max(20, State.maxDistance - Runtime.penalty) end
 local Features, FeatureByKey, InstFeatures, ParamIndex = {}, {}, {}, {}
@@ -361,6 +395,7 @@ local function strongKeys() return {} end
 local function setProp(inst, prop, value) inst[prop] = value end
 
 local function touch(f, inst, prop, value)
+    if isGravelInstance(inst) then return end
     local ok, cur = pcall(function() return inst[prop] end)
     if not ok then return end
     local ot = Orig[prop]
@@ -572,9 +607,11 @@ local function scan(list)
     local all = Workspace:GetDescendants()
     for i = 1, #all do
         local inst = all[i]
-        for j = 1, #list do
-            local f = list[j]
-            if f.active then pcall(f.onInstance, f, inst) end
+        if not isGravelInstance(inst) then
+            for j = 1, #list do
+                local f = list[j]
+                if f.active then pcall(f.onInstance, f, inst) end
+            end
         end
         if i % 2500 == 0 then task.wait() end
     end
@@ -588,6 +625,7 @@ local function refreshHook()
     end
     if need and not addedConn then
         addedConn = Workspace.DescendantAdded:Connect(function(inst)
+            if isGravelInstance(inst) then return end
             for _, f in ipairs(InstFeatures) do
                 if f.active then pcall(f.onInstance, f, inst) end
             end
@@ -703,6 +741,7 @@ local function soundPosition(snd)
 end
 
 local function stashAndDetach(f, inst, parent)
+    if isGravelInstance(inst) then return end
     f.stash = f.stash or {}
     f.stash[#f.stash + 1] = { obj = inst, parent = parent or inst.Parent }
     inst.Parent = nil
@@ -2486,6 +2525,8 @@ local Controls = {
         desc = "idk it's a text cursor rng4 :v" },
     textCursor2 = { kind = "input", default = "  ", title = "Text cursor2",
         desc = "who needs ts 🥀" },
+    gravelProtect = { kind = "toggle", default = true, title = "Protect Gravel.cc",
+        desc = "Stops Sand's features from touching Gravel.cc's ESP, highlights, rings, helper parts and GUIs so both scripts can run together without breaking each other." },
     bgMusic = { kind = "toggle", default = true, title = "Background music",
         desc = "Just plays Sugary Spire OST called ''Results!'' ig... :p" },
     fflagJSON = { kind = "input", multiline = true,
@@ -2523,44 +2564,43 @@ end
 local function fsReady()
     return type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
 end
-local function savePath() return cfg.folder .. "/" .. cfg.file end
-local function jsonScalar(v) return HttpService:JSONEncode({ v }):sub(2, -2) end
 
-local function encodeState()
-    local keys = {}
-    for k in pairs(Defs) do keys[#keys + 1] = k end
-    table.sort(keys)
-    local lines = {}
-    for i, k in ipairs(keys) do
-        lines[i] = string.format("    %s: %s", jsonScalar(k), jsonScalar(State[k]))
+local SaveSys = {
+    appearance = { uiTheme = true, uiTransparency = true, textCursor = true, textCursor2 = true, bgMusic = true },
+    saveFolder = cfg.folder .. "/Saves",
+    assetFolder = cfg.folder .. "/assets",
+    memoryFile = cfg.folder .. "/assets/memory.json",
+    appearanceFile = cfg.folder .. "/appearance.json",
+    legacyFile = cfg.folder .. "/autosave.json",
+    current = nil,
+    token = 0,
+    query = "",
+}
+
+function SaveSys.ensureFolders()
+    if type(makefolder) ~= "function" then return end
+    for _, path in ipairs({ cfg.folder, SaveSys.saveFolder, SaveSys.assetFolder }) do
+        if not (isfolder and isfolder(path)) then pcall(makefolder, path) end
     end
-    return "{\n" .. table.concat(lines, ",\n") .. "\n}\n"
 end
 
-local function saveNow()
+function SaveSys.saveAppearance()
     if not fsReady() then return false end
-    if makefolder and not (isfolder and isfolder(cfg.folder)) then pcall(makefolder, cfg.folder) end
-    local ok, err = pcall(writefile, savePath(), encodeState())
-    if not ok then warnOnce("couldn't write " .. savePath() .. ": " .. tostring(err)) end
+    SaveSys.ensureFolders()
+    local data = {}
+    for key in pairs(SaveSys.appearance) do data[key] = State[key] end
+    local ok, err = pcall(function() writefile(SaveSys.appearanceFile, HttpService:JSONEncode(data)) end)
+    if not ok then warnOnce("couldn't write " .. SaveSys.appearanceFile .. ": " .. tostring(err)) end
     return ok
 end
 
-local saveToken = 0
-local function scheduleSave()
-    if cfg.autosave == false or not alive then return end
-    saveToken = saveToken + 1
-    local mine = saveToken
+function SaveSys.scheduleAppearance()
+    if not alive then return end
+    SaveSys.token = SaveSys.token + 1
+    local mine = SaveSys.token
     task.delay(1, function()
-        if mine == saveToken then saveNow() end
+        if mine == SaveSys.token and alive then SaveSys.saveAppearance() end
     end)
-end
-
-local function readSaved()
-    if not (fsReady() and isfile(savePath())) then return nil end
-    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(savePath())) end)
-    if ok and type(data) == "table" then return data end
-    warnOnce("the autosave file is unreadable, ignoring it")
-    return nil
 end
 
 local WindUI, PolyWindow
@@ -2602,21 +2642,7 @@ local function setState(key, value, silent)
     else
         paramChanged(key)
     end
-    if not silent then scheduleSave() end
-end
-
-local function loadSaved(live)
-    local data = readSaved()
-    if not data then return 0 end
-    local n = 0
-    for key, value in pairs(data) do
-        local v = coerce(key, value)
-        if v ~= nil then
-            n = n + 1
-            if live then setState(key, v, true) else State[key] = v end
-        end
-    end
-    return n
+    if not silent and SaveSys.appearance[key] then SaveSys.scheduleAppearance() end
 end
 
 local function syncAllUI()
@@ -2625,13 +2651,7 @@ local function syncAllUI()
     end
 end
 
-local ignorethesebsplz = {
-    uiTheme = true,
-    uiTransparency = true,
-    textCursor = true,
-    textCursor2 = true,
-    bgMusic = true,
-}
+local ignorethesebsplz = SaveSys.appearance
 
 local function disableAll()
     for _, f in ipairs(Features) do
@@ -2877,9 +2897,61 @@ local function exactPresetName(name)
     end
 end
 
+local PresetAuto = { file = cfg.folder .. "/assets/preset_autoload.json" }
+
+function PresetAuto.read()
+    if not (fsReady() and isfile(PresetAuto.file)) then return {} end
+    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(PresetAuto.file)) end)
+    return (ok and type(data) == "table") and data or {}
+end
+
+function PresetAuto.write(mem)
+    if not fsReady() then return false end
+    SaveSys.ensureFolders()
+    local ok, err = pcall(function() writefile(PresetAuto.file, HttpService:JSONEncode(mem)) end)
+    if not ok then warnOnce("couldn't write " .. PresetAuto.file .. ": " .. tostring(err)) end
+    return ok
+end
+
+function PresetAuto.forget(name)
+    local mem, changed = PresetAuto.read(), false
+    for id, d in pairs(mem) do
+        if type(d) ~= "table" or d.presetName == name then
+            mem[id] = nil
+            changed = true
+        end
+    end
+    if changed then PresetAuto.write(mem) end
+end
+
+function PresetAuto.text()
+    local mem = PresetAuto.read()
+    local here = tostring(game.PlaceId)
+    local rows = {}
+    for id, d in pairs(mem) do
+        if type(d) == "table" and type(d.presetName) == "string" then
+            rows[#rows + 1] = { id = id, game = tostring(d.gameName or "Unknown Game"), preset = d.presetName }
+        end
+    end
+    if #rows == 0 then
+        return "No autoloads set. Pick a preset, then hit 'Autoload on Game' :3"
+    end
+    table.sort(rows, function(a, b) return a.game:lower() < b.game:lower() end)
+    local lines = {}
+    for i, r in ipairs(rows) do
+        if i > 15 then
+            lines[#lines + 1] = "...and " .. (#rows - 15) .. " more"
+            break
+        end
+        lines[#lines + 1] = (r.id == here and "✓ " or "> ") .. r.game .. " → " .. r.preset .. (r.id == here and "!" or "")
+    end
+    return table.concat(lines, "\n")
+end
+
 local function presetListText()
     local q = trimStr(presetQuery)
     local hits = searchPresets(q)
+    local mine = PresetAuto.read()[tostring(game.PlaceId)]
     local total = 0
     for _ in pairs(Presets) do total = total + 1 end
     if total == 0 then
@@ -2895,7 +2967,8 @@ local function presetListText()
             break
         end
         local c = presetFlagCount(Presets[h.name])
-        lines[#lines + 1] = string.format("%s%s  (%d flag%s)", i == 1 and q ~= "" and "> " or "- ", h.name, c, c == 1 and "" or "s")
+        local tag = (type(mine) == "table" and mine.presetName == h.name) and "  [autoload here]" or ""
+        lines[#lines + 1] = string.format("%s%s  (%d flag%s)%s", i == 1 and q ~= "" and "> " or "- ", h.name, c, c == 1 and "" or "s", tag)
     end
     return table.concat(lines, "\n")
 end
@@ -2926,12 +2999,14 @@ FFState.refreshFailed = function()
 end
 
 local function refreshPresetList()
-    local el = Elements.presetList
-    if not el then return end
-    local text = presetListText()
-    if not pcall(function() el:SetDesc(text) end) then
-        pcall(function() el:Set(text) end)
+    local function put(el, text)
+        if not el then return end
+        if not pcall(function() el:SetDesc(text) end) then
+            pcall(function() el:Set(text) end)
+        end
     end
+    put(Elements.presetList, presetListText())
+    put(Elements.presetAutoList, PresetAuto.text())
 end
 
 local function presetSave()
@@ -2974,7 +3049,6 @@ local function presetLoad()
     local name = hits[1].name
     State.fflagJSON = Presets[name]
     syncUI("fflagJSON")
-    scheduleSave()
     local msg = "Loaded \"" .. name .. "\" into the JSON box"
     local score = hits[1].score
     local function finish(m)
@@ -3001,7 +3075,33 @@ end
 local function presetDelete()
     local q = trimStr(presetQuery)
     if q == "" then
+        notify("Sand", "Type the full preset name first :p")
+        return
+    end
+    if Presets[q] == nil then
+        local hits = searchPresets(q)
+        if #hits == 0 then
+            notify("Sand", "No preset looks like \"" .. q .. "\" :o")
+        else
+            notify("Sand", "No preset is named exactly \"" .. q .. "\". Closest is \"" .. hits[1].name .. "\", type the full name to delete it :v", 5)
+        end
+        return
+    end
+    Presets[q] = nil
+    savePresetFile()
+    PresetAuto.forget(q)
+    notify("Sand", "Yeeted \"" .. q .. "\" into the void :3")
+    refreshPresetList()
+end
+
+local function presetSetAutoload()
+    local q = trimStr(presetQuery)
+    if q == "" then
         notify("Sand", "Type (part of) a preset name first :p")
+        return
+    end
+    if not fsReady() then
+        notify("Sand", "This executor has no file functions, can't set an autoload :(")
         return
     end
     local hits = searchPresets(q)
@@ -3009,15 +3109,65 @@ local function presetDelete()
         notify("Sand", "No preset looks like \"" .. q .. "\" :o")
         return
     end
-    if hits[1].score < 600 then
-        notify("Sand", "Not sure enough to delete. Did you mean \"" .. hits[1].name .. "\"? Type it out properly :v")
+    local name = hits[1].name
+    local mem = PresetAuto.read()
+    local gname = (SaveSys.gameName and SaveSys.gameName()) or "Unknown Game"
+    mem[tostring(game.PlaceId)] = { presetName = name, gameName = gname, updatedAt = os.time() }
+    if PresetAuto.write(mem) then
+        notify("Sand", "Autoload set: \"" .. name .. "\" on " .. gname .. " :3")
+    else
+        notify("Sand", "Couldn't set the autoload :c")
+    end
+    refreshPresetList()
+end
+
+local function presetRemoveAutoload()
+    local mem = PresetAuto.read()
+    local id = tostring(game.PlaceId)
+    if type(mem[id]) ~= "table" then
+        notify("Sand", "there isn't a preset autoload for this game :/")
         return
     end
-    local name = hits[1].name
-    Presets[name] = nil
-    savePresetFile()
-    notify("Sand", "Yeeted \"" .. name .. "\" into the void :3")
+    mem[id] = nil
+    if PresetAuto.write(mem) then
+        notify("Sand", "Removed the preset autoload for this game :3")
+    else
+        notify("Sand", "Couldn't remove the autoload :c")
+    end
     refreshPresetList()
+end
+
+function PresetAuto.startup()
+    if not fsReady() then return nil end
+    local id = tostring(game.PlaceId)
+    local entry = PresetAuto.read()[id]
+    if type(entry) ~= "table" or type(entry.presetName) ~= "string" then return nil end
+    loadPresetFile()
+    local name = entry.presetName
+    local json = Presets[name]
+    if json == nil then
+        PresetAuto.forget(name)
+        return nil
+    end
+    local tbl = parseFlagJSON(json)
+    if not tbl then return nil end
+    State.fflagJSON = json
+    syncUI("fflagJSON")
+    if not fflagReady() then return nil end
+    task_("presetAutoload", function()
+        task.wait(1)
+        local waited = 0
+        while alive and FFState.busy and waited < 60 do
+            task.wait(0.5)
+            waited = waited + 0.5
+        end
+        if not alive then return end
+        runFFlagJob(tbl, function(applied, failed)
+            notify("Sand", string.format("Autoloaded fast flag preset \"%s\" (%d flag%s%s) :3",
+                name, applied, applied == 1 and "" or "s", failed > 0 and (", " .. failed .. " failed") or ""), 5)
+        end)
+    end)
+    return name
 end
 
 local function resetDefaults()
@@ -3025,7 +3175,488 @@ local function resetDefaults()
         setState(key, def.default, true)
         syncUI(key)
     end
-    scheduleSave()
+    SaveSys.scheduleAppearance()
+end
+
+do
+    local S = SaveSys
+    local APP = S.appearance
+    local saveQuery = ""
+    local gameNameCache
+
+    local function gameName()
+        if gameNameCache then return gameNameCache end
+        local ok, info = pcall(function()
+            return cloneref(game:GetService("MarketplaceService")):GetProductInfo(game.PlaceId)
+        end)
+        local nm = ok and type(info) == "table" and info.Name
+        gameNameCache = (type(nm) == "string" and nm ~= "") and nm or "Unknown Game"
+        return gameNameCache
+    end
+
+    S.gameName = gameName
+
+    local function autoName()
+        local nm = gameName()
+        if nm ~= "Unknown Game" then
+            local ab = ""
+            for word in nm:gmatch("%a[%w]*") do ab = ab .. word:sub(1, 1):upper() end
+            if #ab >= 2 then return ab:sub(1, 8) end
+            local compact = (nm:gsub("[^%w]", ""))
+            if #compact >= 2 then return compact:sub(1, 12) end
+        end
+        return "Config_" .. os.date("%Y-%m-%d_%H-%M-%S")
+    end
+
+    local function cleanName(v)
+        local name = trimStr(v):gsub('[/\\:%*%?"<>|]', "_")
+        return (name:sub(1, 40))
+    end
+
+    local function pathOf(name) return S.saveFolder .. "/" .. name .. ".json" end
+
+    function S.list()
+        local out = {}
+        if not (fsReady() and type(listfiles) == "function") then return out end
+        if isfolder and not isfolder(S.saveFolder) then return out end
+        local ok, files = pcall(listfiles, S.saveFolder)
+        if not ok or type(files) ~= "table" then return out end
+        for _, file in ipairs(files) do
+            local nm = tostring(file):match("([^/\\]+)%.json$")
+            if nm then out[#out + 1] = nm end
+        end
+        table.sort(out, function(a, b) return a:lower() < b:lower() end)
+        return out
+    end
+
+    local function search(query)
+        local out = {}
+        for _, name in ipairs(S.list()) do
+            local sc = fuzzyScore(query, name)
+            if sc then out[#out + 1] = { name = name, score = sc } end
+        end
+        table.sort(out, function(a, b)
+            if a.score ~= b.score then return a.score > b.score end
+            return a.name:lower() < b.name:lower()
+        end)
+        return out
+    end
+
+    local function exact(name)
+        local low = string.lower(trimStr(name))
+        for _, n in ipairs(S.list()) do
+            if n:lower() == low then return n end
+        end
+    end
+
+    local function readSave(name)
+        local path = pathOf(name)
+        if not (fsReady() and isfile(path)) then return nil end
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+        if ok and type(data) == "table" and type(data.config) == "table" then return data end
+        return nil
+    end
+
+    local function readMemory()
+        if not (fsReady() and isfile(S.memoryFile)) then return {} end
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(S.memoryFile)) end)
+        return (ok and type(data) == "table") and data or {}
+    end
+
+    local function writeMemory(mem)
+        if not fsReady() then return false end
+        S.ensureFolders()
+        local ok, err = pcall(function() writefile(S.memoryFile, HttpService:JSONEncode(mem)) end)
+        if not ok then warnOnce("couldn't write " .. S.memoryFile .. ": " .. tostring(err)) end
+        return ok
+    end
+
+    local function pruneMemory(mem)
+        if type(listfiles) ~= "function" then return mem end
+        local set = {}
+        for _, n in ipairs(S.list()) do set[n:lower()] = n end
+        local changed = false
+        for id, d in pairs(mem) do
+            if type(d) ~= "table" or type(d.saveName) ~= "string" then
+                mem[id] = nil
+                changed = true
+            else
+                local real = set[d.saveName:lower()]
+                if not real then
+                    mem[id] = nil
+                    changed = true
+                elseif real ~= d.saveName then
+                    d.saveName = real
+                    changed = true
+                end
+            end
+        end
+        if changed then writeMemory(mem) end
+        return mem
+    end
+
+    local function capture()
+        local conf = {}
+        for key in pairs(Defs) do
+            if not APP[key] then conf[key] = State[key] end
+        end
+        return conf
+    end
+
+    local function applyConf(conf, live)
+        local n = 0
+        for key, def in pairs(Defs) do
+            if not APP[key] then
+                local v = coerce(key, conf[key])
+                if v == nil then v = def.default end
+                if live then setState(key, v, true) else State[key] = v end
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    local function setDesc(el, text)
+        if not el then return end
+        if not pcall(function() el:SetDesc(text) end) then pcall(function() el:Set(text) end) end
+    end
+
+    local function listText()
+        local q = trimStr(saveQuery)
+        local all = S.list()
+        if not (fsReady() and type(listfiles) == "function") then
+            return "this executor can't list files, so the save list can't show :("
+        end
+        if #all == 0 then
+            return "the sand pile is empty :( type a name, then hit\nSave/Overwrite"
+        end
+        local mine = readMemory()[tostring(game.PlaceId)]
+        local hits = search(q)
+        if #hits == 0 then
+            return "no matches for \"" .. q .. "\" :o (" .. #all .. " save" .. (#all == 1 and "" or "s") .. " total)"
+        end
+        local lines = {}
+        for i, h in ipairs(hits) do
+            if i > 15 then
+                lines[#lines + 1] = "...and " .. (#hits - 15) .. " more grains"
+                break
+            end
+            local mark = (S.current == h.name) and "✓ " or ((i == 1 and q ~= "") and "> " or "- ")
+            local tag = (type(mine) == "table" and mine.saveName == h.name) and "  [autoload here]" or ""
+            lines[#lines + 1] = mark .. h.name .. tag
+        end
+        return table.concat(lines, "\n")
+    end
+
+    local function autoloadText()
+        local mem = readMemory()
+        local here = tostring(game.PlaceId)
+        local rows = {}
+        for id, d in pairs(mem) do
+            if type(d) == "table" and type(d.saveName) == "string" then
+                rows[#rows + 1] = { id = id, game = tostring(d.gameName or "Unknown Game"), save = d.saveName }
+            end
+        end
+        if #rows == 0 then
+            return "No autoloads set. Pick a save, then hit 'Autoload on Game' :3"
+        end
+        table.sort(rows, function(a, b) return a.game:lower() < b.game:lower() end)
+        local lines = {}
+        for i, r in ipairs(rows) do
+            if i > 15 then
+                lines[#lines + 1] = "...and " .. (#rows - 15) .. " more"
+                break
+            end
+            lines[#lines + 1] = (r.id == here and "✓ " or "> ") .. r.game .. " → " .. r.save .. (r.id == here and "!" or "")
+        end
+        return table.concat(lines, "\n")
+    end
+
+    function S.refresh()
+        setDesc(Elements.saveList, listText())
+        setDesc(Elements.autoloadList, autoloadText())
+    end
+
+    function S.setQuery(v)
+        saveQuery = tostring(v or "")
+        S.query = saveQuery
+        setDesc(Elements.saveList, listText())
+    end
+
+    function S.save(name)
+        if not fsReady() then
+            notify("Sand", "This executor has no file functions, can't save :(")
+            return false
+        end
+        name = cleanName(name)
+        local auto = false
+        if name == "" then
+            name = autoName()
+            auto = true
+        end
+        local existing = exact(name)
+        local key = existing or name
+        S.ensureFolders()
+        local data = { version = 1, game = gameName(), placeId = game.PlaceId, savedAt = os.time(), config = capture() }
+        local ok, err = pcall(function() writefile(pathOf(key), HttpService:JSONEncode(data)) end)
+        if not ok then
+            warnOnce("couldn't write " .. pathOf(key) .. ": " .. tostring(err))
+            notify("Sand", "Couldn't write the save (see console) :c")
+            return false
+        end
+        S.current = key
+        notify("Sand", (existing and "Overwrote " or "Stashed ") .. "\"" .. key .. "\"" .. (auto and " (auto-named from the game)" or "") .. " in the sand pile :3")
+        S.refresh()
+        return true
+    end
+
+    function S.load(query)
+        local q = trimStr(query)
+        if q == "" then
+            notify("Sand", "enter a save name bru")
+            return false
+        end
+        local hits = search(q)
+        if #hits == 0 then
+            notify("Sand", "No save looks like \"" .. q .. "\" :o")
+            return false
+        end
+        local best = hits[1]
+        local data = readSave(best.name)
+        if not data then
+            notify("Sand", "Save \"" .. best.name .. "\" is missing or corrupted :c")
+            return false
+        end
+        local n = applyConf(data.config, true)
+        syncAllUI()
+        S.current = best.name
+        notify("Sand", "Loaded \"" .. best.name .. "\" (" .. n .. " settings)"
+            .. (best.score < 1000 and (" [fuzzy match for \"" .. q .. "\"]") or "") .. " :3", 4)
+        S.refresh()
+        return true
+    end
+
+    function S.delete(query)
+        local q = trimStr(query)
+        if q == "" then
+            notify("Sand", "enter the full save name bru")
+            return false
+        end
+        local name
+        for _, n in ipairs(S.list()) do
+            if n == q then
+                name = n
+                break
+            end
+        end
+        if not name then
+            local hits = search(q)
+            if #hits == 0 then
+                notify("Sand", "No save looks like \"" .. q .. "\" :o")
+            else
+                notify("Sand", "No save is named exactly \"" .. q .. "\". Closest is \"" .. hits[1].name .. "\", type the full name to delete it :v", 5)
+            end
+            return false
+        end
+        if type(delfile) ~= "function" then
+            notify("Sand", "This executor can't delete files :(")
+            return false
+        end
+        if not pcall(delfile, pathOf(name)) then
+            notify("Sand", "Failed to delete \"" .. name .. "\" :c")
+            return false
+        end
+        local mem, changed = readMemory(), false
+        for id, d in pairs(mem) do
+            if type(d) == "table" and d.saveName == name then
+                mem[id] = nil
+                changed = true
+            end
+        end
+        if changed then writeMemory(mem) end
+        if S.current == name then S.current = nil end
+        notify("Sand", "Yeeted \"" .. name .. "\" into the void :3")
+        S.refresh()
+        return true
+    end
+
+    function S.deleteAll()
+        local saves = S.list()
+        if #saves == 0 then
+            notify("Sand", "where da saves")
+            return false
+        end
+        if type(delfile) ~= "function" then
+            notify("Sand", "This executor can't delete files :(")
+            return false
+        end
+        if not (WindUI and WindUI.Popup) then
+            notify("Sand", "Can't show the confirm popup, so nothing was deleted :o")
+            return false
+        end
+        local confirmCount, maxConfirm = 0, 3
+        local titles = { "u sure bout dat??", "fr fr?", "ARE U RLY SUPER DUPER SURE???", "THINK ABOUT THE SAVES FAMILY", "SURE SURELY SUREY??", "THE SAND REMEMBERS" }
+        local yeses = { "Yes", "Yeah", "YESSIRSKI!", "HELL YA", "IM FR", "IM SO SURE THAT IM SURE!!", "SAVES GO TO HELL!!" }
+        local nos = { "Nah", "Pass", "HECK NAH", "NOOO", "OH NOES", "NO I LIKE MAH SAVES" }
+        local function pick(t) return t[math.random(1, #t)] end
+        local show
+        local function doDelete()
+            local deleted, failed, names = 0, {}, {}
+            for _, name in ipairs(S.list()) do
+                if pcall(delfile, pathOf(name)) then
+                    deleted = deleted + 1
+                    names[name] = true
+                else
+                    failed[#failed + 1] = name
+                end
+            end
+            local mem, changed = readMemory(), false
+            for id, d in pairs(mem) do
+                if type(d) == "table" and names[d.saveName] then
+                    mem[id] = nil
+                    changed = true
+                end
+            end
+            if changed then writeMemory(mem) end
+            S.current = nil
+            notify("Sand", string.format("Deleted %d/%d saves :p", deleted, #saves))
+            if #failed > 0 then notify("Sand", "Couldn't delete: " .. table.concat(failed, ", "), 5) end
+            S.refresh()
+        end
+        show = function()
+            local yes, no = pick(yeses), pick(nos)
+            local ok = pcall(function()
+                WindUI:Popup({
+                    Title = pick(titles),
+                    Icon = "trash",
+                    Content = string.format(
+                        "This will permanently delete ALL %d saves!\n\nThis can't be undone.\n\nConfirmation %d/%d - click '%s' to proceed",
+                        #saves, confirmCount + 1, maxConfirm, yes),
+                    Buttons = {
+                        { Title = yes, Icon = "check", Variant = "Danger", Callback = function()
+                            confirmCount = confirmCount + 1
+                            if confirmCount >= maxConfirm then
+                                confirmCount = 0
+                                doDelete()
+                            else
+                                show()
+                            end
+                        end },
+                        { Title = no, Icon = "x", Variant = "Secondary", Callback = function()
+                            confirmCount = 0
+                            notify("Sand", "ofc u picked no XD", 4)
+                        end },
+                    },
+                })
+            end)
+            if not ok then notify("Sand", "The confirm popup broke, so nothing was deleted :o") end
+        end
+        show()
+        return true
+    end
+
+    function S.setAutoload(query)
+        local q = trimStr(query)
+        if q == "" then
+            notify("Sand", "enter a save name bru")
+            return false
+        end
+        local hits = search(q)
+        if #hits == 0 then
+            notify("Sand", "No save looks like \"" .. q .. "\" :o")
+            return false
+        end
+        local name = hits[1].name
+        local mem = pruneMemory(readMemory())
+        local gname = gameName()
+        mem[tostring(game.PlaceId)] = { saveName = name, gameName = gname, updatedAt = os.time() }
+        if writeMemory(mem) then
+            notify("Sand", "Autoload set: \"" .. name .. "\" on " .. gname .. " :3")
+            S.refresh()
+            return true
+        end
+        notify("Sand", "Couldn't set the autoload :c")
+        return false
+    end
+
+    function S.removeAutoload()
+        local mem = readMemory()
+        local id = tostring(game.PlaceId)
+        if type(mem[id]) ~= "table" then
+            notify("Sand", "there isn't an autoload for this game :/")
+            return false
+        end
+        mem[id] = nil
+        if writeMemory(mem) then
+            notify("Sand", "Removed the autoload for this game :3")
+            S.refresh()
+            return true
+        end
+        notify("Sand", "Couldn't remove the autoload :c")
+        return false
+    end
+    function S.startupAutoload()
+        local mem = readMemory()
+        local id = tostring(game.PlaceId)
+        local entry = mem[id]
+        if type(entry) ~= "table" or type(entry.saveName) ~= "string" then return nil end
+        local name, data = entry.saveName, nil
+        data = readSave(name)
+        if not data then
+            name = exact(entry.saveName)
+            data = name and readSave(name)
+        end
+        if not data then
+            if type(listfiles) == "function" then
+                pruneMemory(mem)
+            end
+            return nil
+        end
+        applyConf(data.config, false)
+        S.current = name
+        gameNameCache = gameNameCache or (type(entry.gameName) == "string" and entry.gameName) or nil
+        return name
+    end
+
+    function S.loadAppearance(live)
+        if not (fsReady() and isfile(S.appearanceFile)) then return 0 end
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(S.appearanceFile)) end)
+        if not ok or type(data) ~= "table" then return 0 end
+        local n = 0
+        for key in pairs(APP) do
+            local v = coerce(key, data[key])
+            if v ~= nil then
+                n = n + 1
+                if live then setState(key, v, true) else State[key] = v end
+            end
+        end
+        return n
+    end
+    function S.migrateLegacy()
+        if not (fsReady() and isfile(S.legacyFile)) then return end
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(S.legacyFile)) end)
+        if ok and type(data) == "table" then
+            S.ensureFolders()
+            if not isfile(S.appearanceFile) then
+                for key in pairs(APP) do
+                    local v = coerce(key, data[key])
+                    if v ~= nil then State[key] = v end
+                end
+                S.saveAppearance()
+            end
+            local conf = {}
+            for key in pairs(Defs) do
+                if not APP[key] and data[key] ~= nil then conf[key] = data[key] end
+            end
+            local importPath = pathOf("old autosave")
+            if next(conf) ~= nil and not isfile(importPath) then
+                pcall(function()
+                    writefile(importPath, HttpService:JSONEncode({ version = 1, game = "imported from the old autosave.json", savedAt = os.time(), config = conf }))
+                end)
+            end
+        end
+        if type(delfile) == "function" then pcall(delfile, S.legacyFile) end
+    end
 end
 
 --feat layout
@@ -3257,7 +3888,7 @@ local BGM = {
     holder = nil,
     isActive = false,
     initialized = false,
-    bgmurl = "https://raw.githubusercontent.com/hm5650/Sand/main/assets/Music/RESULTS.mp3",
+    bgmurl = "https://raw.githubusercontent.com/hm5650/Sand/main/assets/music/RESULTS.mp3",
 }
 
 local function ensureBGMAsset()
@@ -3852,16 +4483,35 @@ local function buildUI()
         })
         ff:Button({
             Title = "Delete",
-            Desc = "Yeets the matching preset forever\n(only if the match is solid).",
+            Desc = "Yeets the preset forever\n(match needs to be solid)",
             Icon = "trash-2",
             Justify = "Center",
             Color = Color3.fromHex("#ff4830"),
             Callback = presetDelete,
         })
         ff:Space()
+        ff:Button({
+            Title = "Autoload on Game",
+            Desc = "Injects that preset by itself whenever you\nexecute Sand in this game :p",
+            Icon = "play",
+            Justify = "Center",
+            Callback = presetSetAutoload,
+        })
+        ff:Button({
+            Title = "Remove Autoload",
+            Desc = "Removes the preset autoload for this game",
+            Icon = "x",
+            Justify = "Center",
+            Callback = presetRemoveAutoload,
+        })
+        ff:Space()
         Elements.presetList = ff:Paragraph({
             Title = "Save list",
             Desc = presetListText(),
+        })
+        Elements.presetAutoList = ff:Paragraph({
+            Title = "Autoload list",
+            Desc = PresetAuto.text(),
         })
         ff:Space()
 
@@ -3941,20 +4591,78 @@ local function buildUI()
 
     local ct = Tabs.config
     ct:Paragraph({
-        Title = "Autosave file",
-        Desc = fsReady() and (savePath() .. " - rewritten automatically whenever a setting changes.")
+        Title = "Save/Load",
+        Desc = fsReady()
+            and "Save your settings under a name and load them later :3\nTheme, transparency, cursor and music are kept separately and save by themselves."
             or "This executor has no file functions, so settings can't be saved.",
     })
     ct:Space()
-    ct:Button({ Title = "Save now", Icon = "save", Justify = "Center", Callback = function()
-        notify("Sand", saveNow() and "Saved." or "Couldn't save (see the console).")
-    end })
+    Elements.saveName = ct:Input({
+        Title = "Save name / search",
+        Desc = "Type a name to save it, or part of one to find it (typos are fine, it's fuzzy :v)",
+        Value = "",
+        Placeholder = "my cool setup",
+        Type = "Input",
+        Callback = function(v) SaveSys.setQuery(v) end,
+    })
     ct:Space()
-    ct:Button({ Title = "Reload saved file", Icon = "refresh-cw", Justify = "Center", Callback = function()
-        local n = loadSaved(true)
-        for key in pairs(Defs) do syncUI(key) end
-        notify("Sand", n > 0 and ("Loaded " .. n .. " settings.") or "No saved file found.")
-    end })
+    ct:Button({
+        Title = "Save/Overwrite",
+        Desc = "Saves yer save leave blank for auto-gen and type same saveName for overwrite :p",
+        Icon = "save",
+        Justify = "Center",
+        Callback = function() SaveSys.save(SaveSys.query) end,
+    })
+    ct:Button({
+        Title = "Load",
+        Desc = "Fuzzy finds the best match and applies it",
+        Icon = "folder-open",
+        Justify = "Center",
+        Callback = function() SaveSys.load(SaveSys.query) end,
+    })
+    ct:Button({
+        Title = "Delete",
+        Desc = "Yeets the save forever\n(match needs to be solid)",
+        Icon = "trash-2",
+        Justify = "Center",
+        Color = Color3.fromHex("#ff4830"),
+        Callback = function() SaveSys.delete(SaveSys.query) end,
+    })
+    ct:Button({
+        Title = "Delete All Saves",
+        Desc = "Permanently deletes EVERY save D:",
+        Icon = "delete",
+        Justify = "Center",
+        Color = Color3.fromHex("#ff4830"),
+        Callback = function() SaveSys.deleteAll() end,
+    })
+    ct:Space()
+    ct:Button({
+        Title = "Autoload on Game",
+        Desc = "Loads that save by itself whenever you\nexecute Sand in this game :p",
+        Icon = "play",
+        Justify = "Center",
+        Callback = function() SaveSys.setAutoload(SaveSys.query) end,
+    })
+    ct:Button({
+        Title = "Remove Autoload",
+        Desc = "Removes the autoload for this game",
+        Icon = "x",
+        Justify = "Center",
+        Callback = function() SaveSys.removeAutoload() end,
+    })
+    ct:Space()
+    Elements.saveList = ct:Paragraph({
+        Title = "Saves list",
+        Desc = "Loading...",
+    })
+    Elements.autoloadList = ct:Paragraph({
+        Title = "Autoload list",
+        Desc = "Loading...",
+    })
+    SaveSys.refresh()
+    ct:Space()
+    addControl(ct, "gravelProtect")
     ct:Space()
 ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
     enableAll()
@@ -4009,8 +4717,18 @@ at:Button({
     Icon = "zap",
     Justify = "Center",
     Callback = function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/HBSS/refs/heads/main/HBSS.lua"))()
-        notify("Sand", "Gravel.cc STARTED!?1!1!")
+        if gravelLoaded() then
+            notify("Sand", "Gravel.cc is already running, we're besties :3")
+            return
+        end
+        local okG, errG = pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/HBSS/refs/heads/main/HBSS.lua"))()
+        end)
+        if okG then
+            notify("Sand", "Gravel.cc STARTED!?1!1!")
+        else
+            notify("Sand", "Gravel.cc failed to start :c (" .. tostring(errG) .. ")", 6)
+        end
     end
 })
 at:Space()
@@ -4038,6 +4756,10 @@ at:Paragraph({
 at:Paragraph({
     Title = "Sand (08/10/2025)",
     Desc = "idk restore prev flags broke\nFixed: Restore Prev Flag Button\nBugs Fixed: 4",
+})
+at:Paragraph({
+    Title = "Sand (08/10/2025)",
+    Desc = "idk bigger update fr fr fr\nAdded: Gravel-style Save/Load (save/overwrite, load, delete, delete all, autoload on game)\nAdded: Protect Gravel.cc toggle (Sand leaves Gravel's ESP/GUIs/parts alone)\nChanged: autosave.json is gone, old settings were moved into a save called ''old autosave''\nChanged: theme & music now save in appearance.json\nAdded: Autoload on Game for Fast Flag presets (Fast Flags tab)\nFixed: Delete (saves & presets) now needs the exact name, fuzzy matching can't yeet the wrong one anymore",
 })
 task_("startRNG4", function()
     task.wait(0.5)
@@ -4144,12 +4866,13 @@ cfg.set = function(key, value)
     setState(key, value)
     syncUI(key)
 end
-cfg.save = saveNow
-cfg.load = function()
-    local n = loadSaved(true)
-    for key in pairs(Defs) do syncUI(key) end
-    return n
-end
+cfg.save = function(name) return SaveSys.save(name) end
+cfg.load = function(name) return SaveSys.load(name) end
+cfg.deleteSave = function(name) return SaveSys.delete(name) end
+cfg.listSaves = function() return SaveSys.list() end
+cfg.setAutoload = function(name) return SaveSys.setAutoload(name) end
+cfg.removeAutoload = function() return SaveSys.removeAutoload() end
+cfg.gravelLoaded = gravelLoaded
 cfg.disableAll = disableAll
 cfg.enableAll = function()
     for _, f in ipairs(Features) do
@@ -4162,16 +4885,24 @@ end
 cfg.unload = unload
 env.__SandCC = cfg
 
-local autoloaded = 0
-if cfg.autoload ~= false then autoloaded = loadSaved(false) end
+local autoloaded = nil
+if fsReady() then
+    pcall(SaveSys.migrateLegacy)
+    pcall(SaveSys.loadAppearance, false)
+    if cfg.autoload ~= false then
+        local okA, res = pcall(SaveSys.startupAutoload)
+        if okA then autoloaded = res end
+        pcall(PresetAuto.startup)
+    end
+end
 task_("startPartCache", startPartCache)
 
 if cfg.createwindui ~= false then
     local ok, err = pcall(buildUI)
     if not ok then warnf("UI error: " .. tostring(err)) end
     cfg.PolyWindow = PolyWindow
-    if PolyWindow and autoloaded > 0 then
-        notify("Sand", "Autoloaded " .. autoloaded .. " saved settings.")
+    if PolyWindow and autoloaded then
+        notify("Sand", "Autoloaded \"" .. autoloaded .. "\" for this game :3")
     end
 end
 task_("initBGM", function()
