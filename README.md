@@ -29,7 +29,6 @@ Raw Loadstring:
 local SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/Sand/main/Sand.lua"))({
     createwindui = true, -- true/false         / allow creating Wind UI (you'll need to rejoin and set the boolean to 'true' and rejoin if you need to change something)
     autoload = true, -- true/false            / allow autoloading
-    autosave = true, -- true/false           / allow autosaving
 })
 -- you can put this in your autoexecute folder if you wanna :p
 -- also this script is underdevelopment like gravel.cc >_>
@@ -175,7 +174,10 @@ A quick-reference of features that Sand.cc has :p
   - Save/Overwrite button
   - Load button
   - Delete button
+  - Autoload on Game button
+  - Remove Autoload button
   - Save list display
+  - Autoload list display
 
 ---
 
@@ -192,8 +194,16 @@ A quick-reference of features that Sand.cc has :p
 
 ## Config Tab
 
-- **Save Now** - Writes the autosave file immediately
-- **Reload Saved File** - Reads the autosave and applies it live
+- **Save Name / Search Input** - Type a name to save, or part of one to find it (fuzzy matching)
+- **Save/Overwrite** - Saves your settings under that name (blank = auto-named from the game)
+- **Load** - Fuzzy finds the best match and applies it
+- **Delete** - Yeets the save forever (exact match required)
+- **Delete All Saves** - Permanently deletes EVERY save (with multi-step confirmation popups)
+- **Autoload on Game** - Loads that save by itself whenever you execute Sand in this game
+- **Remove Autoload** - Removes the autoload for this game
+- **Saves List** - Shows all your saves (fuzzy searchable)
+- **Autoload List** - Shows all autoloads
+- **Protect Gravel.cc** - Stops Sand's features from touching Gravel.cc's ESP, highlights, rings, helper parts and GUIs
 - **Enable Everything** - Turns on every feature
 - **Disable Everything** - Turns off every feature
 - **Reset to Defaults** - Same as Disable Everything but also resets all sliders/inputs
@@ -214,18 +224,40 @@ A quick-reference of features that Sand.cc has :p
 
 ---
 
-# Autosave
+# Saves
 
-Sand.cc stores its settings as a JSON file in:
+Sand.cc stores your settings as JSON files in:
 
 ```
-Sand.cc/autosave.json
+Sand.cc/Saves/<name>.json
 ```
 
-- Autosave runs **1 second after the last change** (debounced).
+- Saves are named (or auto-named from the game if left blank).
 - Autoload runs **at startup** if `autoload` is `true` (which is the default).
-- The file is a plain Lua-like table with one entry per setting.
+- The file is a plain JSON dictionary with one entry per setting.
 - Deleting the folder or file just means you lose your saved preferences.
+
+### Appearance
+
+Theme, transparency, cursors and music are saved separately in:
+
+```
+Sand.cc/appearance.json
+```
+
+These save by themselves (debounced 1 second after the last change) and load automatically at startup.
+
+### Autoload Memory
+
+Autoload mappings (which save loads for which game) are stored in:
+
+```
+Sand.cc/assets/memory.json
+```
+
+- When you set an autoload, it remembers the game name and place ID.
+- If the save is deleted, the autoload is automatically cleaned up.
+- The autoload list shows all your game → save mappings, with a ✓ next to the current game.
 
 ---
 
@@ -239,7 +271,12 @@ Sand.cc/presets.json
 
 - Presets are saved as JSON dictionaries of fast flags.
 - Fuzzy search is supported (typos are fine :v).
-- Presets can be saved, loaded, and deleted from the Fast Flags tab.
+- Presets can be saved, loaded, deleted, and set to autoload from the Fast Flags tab.
+- Preset autoloads are stored in:
+
+```
+Sand.cc/assets/preset_autoload.json
+```
 
 ---
 
@@ -252,8 +289,13 @@ local SandCC = getgenv().__SandCC
 
 SandCC.State            -- live table of every setting value
 SandCC.set(key, value)  -- set a setting and sync the UI
-SandCC.save()           -- write the autosave file now
-SandCC.load()           -- load the autosave file and return how many keys were loaded
+SandCC.save(name)       -- save settings under that name
+SandCC.load(name)       -- load a save by name (fuzzy)
+SandCC.deleteSave(name) -- delete a save by name (exact)
+SandCC.listSaves()      -- returns a table of all save names
+SandCC.setAutoload(name)-- set that save to autoload for this game
+SandCC.removeAutoload() -- remove the autoload for this game
+SandCC.gravelLoaded()   -- returns true if Gravel.cc is loaded
 SandCC.enableAll()      -- turn on every feature
 SandCC.disableAll()     -- turn off every feature
 SandCC.unload()         -- fully unload Sand.cc
@@ -264,13 +306,14 @@ SandCC.PolyWindow       -- the WindUI window object (if one was created)
 
 # Quick Notes
 
-- It's pairable with **Gravel.cc**.
+- It's pairable with **Gravel.cc** (Protect Gravel.cc toggle is on by default).
 - Some features hook `__namecall` (like Throttle Remote Events).. those can break gameplay.
 - Some features are hidden behind `sethiddenproperty` (like Remove Grass) and will fall back gracefully.
 - FPS Counter / Ping Counter use `Stats.Network.ServerStatsItem` and won't error on executors that block it.
-- The autosave uses a **JSON-with-one-entry-per-line** format so it's still valid JSON but easy to read.
+- Saves use a **JSON dictionary** format so they're easy to read and edit.
 - Fast Flags require `setfflag`/`getfflag` and most require a rejoin to take effect.
 - Background music is downloaded and cached in `Sand.cc/assets/Music/RESULTS.mp3`.
+- Gravel.cc protection can be toggled off if you want Sand to optimize Gravel's ESP/parts too.
 
 ---
 
@@ -297,15 +340,27 @@ SandCC.PolyWindow       -- the WindUI window object (if one was created)
   
   V
   
-  >Sand.cc - stores the autosave file here!
+  >Sand.cc - stores saves, presets and assets here!
   
   V
   
-  >autosave.json - your saved settings live here
+  >Saves/<name>.json - your named saves live here
+  
+  V
+  
+  >appearance.json - theme, transparency, cursors and BGM saved here
   
   V
   
   >presets.json - your fast flag presets live here
+  
+  V
+  
+  >assets/memory.json - autoload mappings (game → save)
+  
+  V
+  
+  >assets/preset_autoload.json - fast flag preset autoloads
   
   V
   
