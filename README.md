@@ -26,9 +26,11 @@ Raw Loadstring:
 
 *(Cached by GitHub.)*
 ```lua
-local SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/Sand/main/Sand.lua"))({
-    createwindui = true, -- true/false         / allow creating Wind UI (you'll need to rejoin and set the boolean to 'true' and rejoin if you need to change something)
+local SandCC = loadstring(game:HttpGet("https://raw.gilocal SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/Sand/main/Sand.lua"))({
+    createwindui = true, -- true/false     / allow creating Wind UI (you'll need to rejoin and set the boolean to 'true' and rejoin if you need to change something)
     autoload = true, -- true/false            / allow autoloading
+    autosave = true, -- true/false           / allow autosaving
+    autoflag = false, -- true/false        / allow auto rejoining whenever a flag is applied
 })
 -- you can put this in your autoexecute folder if you wanna :p
 -- also this script is underdevelopment like gravel.cc >_>
@@ -165,6 +167,7 @@ A quick-reference of features that Sand.cc has :p
 ## Fast Flags Tab
 
 - **Fast Flags JSON Input** - Paste a JSON dictionary of fast flags to inject
+- **AutoFlag** - Automatically rejoin whenever flags gets applied
 - **Apply Fast Flags** - Injects the flags (requires setfflag/getfflag)
 - **Failed List** - Shows a list of failed FFlags
 - **Restore Prev FFlags** - Puts every flag back to what it was before Sand touched it
