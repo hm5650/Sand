@@ -30,9 +30,6 @@ local SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650
     createwindui = true, -- true/false         / allow creating Wind UI (you'll need to rejoin and set the boolean to 'true' and rejoin if you need to change something)
     autoload = true, -- true/false            / allow autoloading
     autosave = true, -- true/false           / allow autosaving
-
-    folder = "Sand.cc", -- folder used for the autosave file (default: "Sand.cc")
-    file = "autosave.json", -- filename inside the folder (default: "autosave.json")
 })
 -- you can put this in your autoexecute folder if you wanna :p
 -- also this script is underdevelopment like gravel.cc >_>
