@@ -62,6 +62,8 @@ local cfg = (type(passed) == "table" and passed) or (type(env.cfg) == "table" an
 if cfg.createwindui == nil then cfg.createwindui = true end
 if cfg.autoload == nil then cfg.autoload = true end
 cfg.folder = cfg.folder or "Sand.cc"
+local cfgAutoFlag = nil
+if type(cfg.autoflag) == "boolean" then cfgAutoFlag = cfg.autoflag end
 if type(env.__SandCC) == "table" and type(env.__SandCC.unload) == "function" then
     pcall(env.__SandCC.unload)
 end
@@ -1810,7 +1812,7 @@ local function applyFFlagTable(tbl)
     FFState.prevValues = FFState.prevValues or {}
     local slice = newSlicer()
     ensurePruned(slice)
-    local applied, failed = 0, 0
+    local applied, failed, changed = 0, 0, 0
     local failedNames = {}
     for flag, value in pairs(tbl) do
         local bare = fflagprefix(flag)
@@ -1818,14 +1820,17 @@ local function applyFFlagTable(tbl)
             failed = failed + 1
             failedNames[#failedNames + 1] = tostring(flag)
         else
+            local cur, usedName = readFlag(flag, bare)
             if FFState.prevValues[bare] == nil and not FFState.unknownPrev[bare] then
-                local cur, usedName = readFlag(flag, bare)
                 if cur ~= nil then
                     FFState.prevValues[bare] = cur
                     FFState.prevNames[bare] = usedName
                 else
                     FFState.unknownPrev[bare] = true
                 end
+            end
+            if cur == nil or cur:lower() ~= tostring(value):lower() then
+                changed = changed + 1
             end
             local ok = pcall(setfflag, bare, tostring(value))
             if ok then
@@ -1838,10 +1843,80 @@ local function applyFFlagTable(tbl)
         slice()
     end
     table.sort(failedNames)
-    return applied, failed, failedNames
+    return applied, failed, failedNames, changed
 end
 
-local function runFFlagJob(tbl, done)
+local AutoFlag = { file = cfg.folder .. "/assets/autoflag_last.json", window = 180, rejoining = false }
+
+function AutoFlag.hash(tbl)
+    local parts = {}
+    for k, v in pairs(tbl) do parts[#parts + 1] = tostring(k) .. "=" .. tostring(v) end
+    table.sort(parts)
+    local str, h = table.concat(parts, ";"), 5381
+    for i = 1, #str do h = (h * 33 + str:byte(i)) % 4294967296 end
+    return tostring(h) .. "_" .. #parts
+end
+
+function AutoFlag.readMarker()
+    if not (ffFsOk() and isfile(AutoFlag.file)) then return nil end
+    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(AutoFlag.file)) end)
+    if ok and type(data) == "table" then return data end
+    return nil
+end
+
+function AutoFlag.writeMarker(hash)
+    if not ffFsOk() then return end
+    if makefolder then
+        for _, path in ipairs({ cfg.folder, cfg.folder .. "/assets" }) do
+            if not (isfolder and isfolder(path)) then pcall(makefolder, path) end
+        end
+    end
+    pcall(function()
+        writefile(AutoFlag.file, HttpService:JSONEncode({ hash = hash, t = os.time(), place = game.PlaceId }))
+    end)
+end
+
+function AutoFlag.rejoin()
+    if AutoFlag.rejoining then return end
+    AutoFlag.rejoining = true
+    task.delay(20, function() AutoFlag.rejoining = false end)
+    local TeleportService = game:GetService("TeleportService")
+    local ok = pcall(function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end)
+    if not ok then
+        ok = pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
+    end
+    if not ok then
+        AutoFlag.rejoining = false
+        ffNotify("AutoFlags couldn't rejoin :c (use the Rejoin button)", 5)
+    end
+end
+
+function AutoFlag.after(tbl, changed, opts)
+    if not State.autoFlags or not alive then return end
+    opts = opts or {}
+    if opts.noRejoin then return end
+    if not (changed and changed > 0) then
+        if opts.manual then ffNotify("AutoFlags: those flags were already set, no rejoin needed :3", 3) end
+        return
+    end
+    local hash = AutoFlag.hash(tbl)
+    if not opts.manual then
+        local m = AutoFlag.readMarker()
+        if m and m.hash == hash and m.place == game.PlaceId
+            and type(m.t) == "number" and os.time() - m.t < AutoFlag.window then
+            return
+        end
+    end
+    AutoFlag.writeMarker(hash)
+    ffNotify("AutoFlags: rejoining in 2s so the flags stick :3 (toggle AutoFlags off to cancel)", 3)
+    task.delay(2, function()
+        if alive and State.autoFlags then AutoFlag.rejoin() end
+    end)
+end
+
+local function runFFlagJob(tbl, done, opts)
     if FFState.busy then
         ffNotify("Still chewing on the last batch, give it a sec :o", 3)
         return false
@@ -1854,7 +1929,7 @@ local function runFFlagJob(tbl, done)
         ffNotify(string.format("Applying %d flags in chunks.. wait a sec :p", count), 4)
     end
     task.spawn(function()
-        local ok, applied, failed, failedNames = pcall(applyFFlagTable, tbl)
+        local ok, applied, failed, failedNames, changed = pcall(applyFFlagTable, tbl)
         FFState.busy = false
         saveFFOriginals()
         if not ok then
@@ -1864,6 +1939,7 @@ local function runFFlagJob(tbl, done)
         setFailedFlags(failedNames)
         FFState.appliedTable = tbl
         if done then done(applied, failed) end
+        if applied > 0 then pcall(AutoFlag.after, tbl, changed, opts) end
     end)
     return true
 end
@@ -2154,24 +2230,94 @@ defineFeature({
     end,
 })
 
+do
+local function hideToolPart(f, inst)
+    if inst:IsA("BasePart") or inst:IsA("Decal") then
+        touch(f, inst, "Transparency", 1)
+    elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Light")
+        or inst:IsA("Fire") or inst:IsA("Smoke") or inst:IsA("Sparkles")
+        or inst:IsA("SurfaceGui") or inst:IsA("BillboardGui") then
+        touch(f, inst, "Enabled", false)
+    end
+end
+
+local function hideToolItem(f, tool)
+    if isGravelInstance(tool) then return end
+    hideToolPart(f, tool)
+    for _, d in ipairs(tool:GetDescendants()) do hideToolPart(f, d) end
+    if not f.toolWatch[tool] then
+        f.toolWatch[tool] = true
+        f.toolConns[#f.toolConns + 1] = tool.DescendantAdded:Connect(function(d)
+            if alive and f.active then pcall(hideToolPart, f, d) end
+        end)
+    end
+end
+
+local function watchToolContainer(f, container)
+    if not container or f.containerWatch[container] then return end
+    f.containerWatch[container] = true
+    for _, d in ipairs(container:GetDescendants()) do
+        if d:IsA("BackpackItem") then pcall(hideToolItem, f, d) end
+    end
+    f.toolConns[#f.toolConns + 1] = container.DescendantAdded:Connect(function(d)
+        if alive and f.active and d:IsA("BackpackItem") then
+            task.defer(function()
+                if alive and f.active and d.Parent then pcall(hideToolItem, f, d) end
+            end)
+        end
+    end)
+end
+
+local function hookToolPlayer(f, plr)
+    if plr == LocalPlayer or f.playerWatch[plr] then return end
+    f.playerWatch[plr] = true
+    watchToolContainer(f, plr)
+    if plr.Character then watchToolContainer(f, plr.Character) end
+    f.toolConns[#f.toolConns + 1] = plr.CharacterAdded:Connect(function(char)
+        task.defer(function()
+            if alive and f.active then pcall(watchToolContainer, f, char) end
+        end)
+    end)
+end
+
 defineFeature({
     key = "hideTools", title = "Hide Held Tools",
-    desc = "Detaches tools other players are holding from their characters",
+    desc = "Hides tools other players are holding or carrying (character + backpack/inventory)",
     apply = function(f)
-        for _, char in ipairs(otherCharacters()) do
-            for _, o in ipairs(char:GetChildren()) do
-                if o:IsA("Tool") then stashAndDetach(f, o, char) end
+        f.toolConns = f.toolConns or {}
+        f.toolWatch = f.toolWatch or weakKeys()
+        f.containerWatch = f.containerWatch or weakKeys()
+        f.playerWatch = f.playerWatch or weakKeys()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                hookToolPlayer(f, plr)
+                watchToolContainer(f, plr)
+                if plr.Character then watchToolContainer(f, plr.Character) end
+                for _, d in ipairs(plr:GetDescendants()) do
+                    if d:IsA("BackpackItem") then pcall(hideToolItem, f, d) end
+                end
+                if plr.Character then
+                    for _, d in ipairs(plr.Character:GetDescendants()) do
+                        if d:IsA("BackpackItem") then pcall(hideToolItem, f, d) end
+                    end
+                end
             end
         end
-    end,
-    onInstance = function(f, inst)
-        if inst:IsA("Tool") and inCharacter(inst) and not isLocalCharacter(inst) then
-            stashAndDetach(f, inst)
+        if not f.joinConn then
+            f.joinConn = Players.PlayerAdded:Connect(function(plr)
+                if alive and f.active then pcall(hookToolPlayer, f, plr) end
+            end)
         end
     end,
     tick = reassert,
-    cleanup = function(f) restoreStash(f) end,
+    cleanup = function(f)
+        for _, c in ipairs(f.toolConns or {}) do pcall(function() c:Disconnect() end) end
+        if f.joinConn then pcall(function() f.joinConn:Disconnect() end) end
+        f.toolConns, f.joinConn = nil, nil
+        f.toolWatch, f.containerWatch, f.playerWatch = nil, nil, nil
+    end,
 })
+end
 
 defineFeature({
     key = "anchorDistant", title = "Anchor Distant Objects",
@@ -2229,7 +2375,7 @@ defineFeature({
 defineFeature({
     key = "renderDistance", title = "Render Distance",
     desc = "Hides parts beyond the render distance slider. StreamingEnabled games are skipped.",
-    params = { "renderDistance" },
+    params = { "renderDistanceValue" },
     apply = function(f)
         if Workspace.StreamingEnabled then return end
         f.hidden = f.hidden or weakKeys()
@@ -2240,7 +2386,7 @@ defineFeature({
         local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
         if not myRoot then return end
         local origin = myRoot.Position
-        local limit = State.renderDistance
+        local limit = State.renderDistanceValue
         local seen = {}
         eachCachedPart(function(inst)
             if not alive or not f.active then return false end
@@ -2507,7 +2653,7 @@ local Controls = {
         desc = "Used by Adaptive Performance." },
     maxDistance = { kind = "slider", default = 50, min = 20, max = 500, step = 10, title = "Max distance",
         desc = "Used by Freeze Distant Players, Throttle Sounds and Adaptive Performance." },
-    renderDistance = { kind = "slider", default = 500, min = 100, max = 5000, step = 50, title = "Render distance",
+    renderDistanceValue = { kind = "slider", default = 500, min = 100, max = 5000, step = 50, title = "Render distance",
         desc = "Parts beyond this are hidden while Render Distance is on." },
     interval = { kind = "slider", default = 10, min = 3, max = 60, step = 1, title = "Update interval (seconds)",
         desc = "How often the periodic checks run." },
@@ -2529,6 +2675,8 @@ local Controls = {
         desc = "Stops Sand's features from touching Gravel.cc's ESP, highlights, rings, helper parts and GUIs so both scripts can run together without breaking each other." },
     bgMusic = { kind = "toggle", default = true, title = "Background music",
         desc = "Just plays Sugary Spire OST called ''Results!'' ig... :p" },
+    autoFlags = { kind = "toggle", default = false, title = "AutoFlags",
+        desc = "Rejoins the server automatically whenever flags get applied :p" },
     fflagJSON = { kind = "input", multiline = true,
         default = '{\n  "FFlagDebugSkyGray": "True"\n}',
         title = "Fast Flags (JSON)",
@@ -2537,7 +2685,7 @@ local Controls = {
 }
 
 local Defs = {}
-for _, f in ipairs(Features) do Defs[f.key] = { kind = "toggle", default = false } end
+for _, f in ipairs(Features) do Defs[f.key] = { kind = "toggle", default = f.default == true } end
 for key, c in pairs(Controls) do Defs[key] = c end
 for key, def in pairs(Defs) do State[key] = def.default end
 
@@ -3061,7 +3209,7 @@ local function presetLoad()
             if not runFFlagJob(tbl, function(applied, failed)
                 finish(msg .. string.format(" and injected %d flag%s%s", applied, applied == 1 and "" or "s",
                     failed > 0 and (" (" .. failed .. " failed)") or ""))
-            end) then
+            end, { manual = true }) then
                 finish(msg .. " (busy, press Apply when the current batch finishes)")
             end
             return
@@ -3698,7 +3846,7 @@ local Layout = {
     players = {
         { "f", "freezePlayers" }, { "c", "freezeBehindCamera" }, { "c", "freezeCheckRate" },
         { "f", "anchorDistant" }, { "c", "anchorBehindCamera" },
-        { "f", "renderDistance" }, { "c", "renderDistance" },
+        { "f", "renderDistance" }, { "c", "renderDistanceValue" },
         { "f", "throttleSounds" },
         { "c", "maxDistance" },
         { "f", "hideOtherPlayers" },
@@ -3793,7 +3941,7 @@ Runtime.rng4Convo = {
       "or roblox & lag", },
     { typesp = "2", "u know what's underrated?", "the sound of sand", "crunch crunch",
       "satisfying as heck", "u can't change my mind", },
-    { "me: 'i'll make a clean script'", "also me:", "*4000+ lines later*", "what is organization?",
+    { "me: 'i'll make a clean script'", "also me:", "*5000+ lines later*", "what is organization?",
       "i don't know her", ":s", },
     { typesp = "1.5", "this script contains:", " - 100% pure sand", " - premium fps",
       " - secret sauce", " - questionable code", " - the tears of ur gpu",
@@ -3816,7 +3964,7 @@ Runtime.rng4Convo = {
       "present me wants", "to add more jokes", "priorities :v", },
     { typesp = "1.5", "if u see me in game", "no u didn't", "if u see me optimizing",
       "no u didn't", "if u see me with good fps", "that's just skill", "sand skill", ";D", },
-    { "bro ts code is 4000+ lines long :(", "I ''can't'' do dis shi :[", "plz heseelepp me {displayname}", },
+    { "bro ts code is 5000+ lines long :(", "I ''can't'' do dis shi :[", "plz heseelepp me {displayname}", },
     { typesp = "1.5", "ur probably using this", "to optimize some game", "that runs at 15 fps",
       "i respect that", "get smooth nerd >:D", "haha i'm just joking", "or am i?", ";)", },
     { typesp = "1.5", "psst", "hey", "over here", "yea u", "wanna know a secret?",
@@ -4391,6 +4539,8 @@ local function buildUI()
         })
         ff:Space()
 
+        addControl(ff, "autoFlags")
+
         ff:Button({
             Title = "Apply Fast Flags",
             Icon = "zap",
@@ -4413,7 +4563,7 @@ local function buildUI()
                         failed > 0 and (" (" .. failed .. " failed)") or ""
                     ))
                     print(string.format("[Sand.cc] Injected %d fastflag(s), %d failed", applied, failed))
-                end)
+                end, { manual = true })
             end,
         })
         ff:Space()
@@ -4676,7 +4826,7 @@ end })
     ct:Space()
     ct:Button({ Title = "Reset to defaults", Icon = "rotate-ccw", Justify = "Center", Callback = function()
         resetDefaults()
-        notify("Sand", "Everything is off again.")
+        notify("Sand", "Everything is back to defaults.")
     end })
     ct:Space()
     ct:Button({ Title = "Unload Sand.cc", Icon = "shredder", Justify = "Center",
@@ -4760,6 +4910,10 @@ at:Paragraph({
 at:Paragraph({
     Title = "Sand (08/10/2025)",
     Desc = "idk bigger update fr fr fr\nAdded: Gravel-style Save/Load (save/overwrite, load, delete, delete all, autoload on game)\nAdded: Protect Gravel.cc toggle (Sand leaves Gravel's ESP/GUIs/parts alone)\nChanged: autosave.json is gone, old settings were moved into a save called ''old autosave''\nChanged: theme & music now save in appearance.json\nAdded: Autoload on Game for Fast Flag presets (Fast Flags tab)\nFixed: Delete (saves & presets) now needs the exact name, fuzzy matching can't yeet the wrong one anymore",
+})
+at:Paragraph({
+    Title = "Sand (09/10/2025)",
+    Desc = "autoflags n stuff\nAdded: AutoFlags toggle (auto rejoins after flags/presets get applied, cfg.autoflag works too)\nFixed: Hide Held Tools (now hides tools in the character AND backpack/inventory)",
 })
 task_("startRNG4", function()
     task.wait(0.5)
@@ -4883,6 +5037,12 @@ cfg.enableAll = function()
     end
 end
 cfg.unload = unload
+cfg.autoflag = function(value)
+    if value == nil then value = not State.autoFlags end
+    setState("autoFlags", value and true or false)
+    syncUI("autoFlags")
+    return State.autoFlags
+end
 env.__SandCC = cfg
 
 local autoloaded = nil
@@ -4895,6 +5055,7 @@ if fsReady() then
         pcall(PresetAuto.startup)
     end
 end
+if cfgAutoFlag ~= nil then setState("autoFlags", cfgAutoFlag, true) end
 task_("startPartCache", startPartCache)
 
 if cfg.createwindui ~= false then
