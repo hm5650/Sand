@@ -207,6 +207,10 @@ A quick-reference of features that Sand.cc has :p
 - **Saves List** - Shows all your saves (fuzzy searchable)
 - **Autoload List** - Shows all autoloads
 - **Protect Gravel.cc** - Stops Sand's features from touching Gravel.cc's ESP, highlights, rings, helper parts and GUIs
+- **Gravel-friendly mode** - makes Sand.cc overall friendlier to Gravel
+- **Re-run Gravel after rejoin** - If Gravel.cc is running when AutoFlags rejoins you, queues Gravel.cc to start again in the new server
+- **Smooth activation** - Turns features on in slices instead of all at once, so enabling a lot of stuff on a giant map doesn't spike your lag.
+    - Slice Budget slider (1-16 ms)
 - **Enable Everything** - Turns on every feature
 - **Disable Everything** - Turns off every feature
 - **Reset to Defaults** - Same as Disable Everything but also resets all sliders/inputs
