@@ -177,6 +177,7 @@ A quick-reference of features that Sand.cc has :p
   - Save/Overwrite button
   - Load button
   - Delete button
+  - Delete all presets button
   - Autoload on Game button
   - Remove Autoload button
   - Save list display
