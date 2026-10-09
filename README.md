@@ -130,10 +130,9 @@ A quick-reference of features that Sand.cc has :p
 - **Freeze Distant Players** - Stops animations of other players beyond max distance
   - Also freeze players behind the camera toggle
   - Freeze check rate slider (0.1-5 seconds)
-- **Anchor Distant Objects** - Anchors unanchored parts beyond max distance
-  - Also anchor objects behind the camera toggle
-- **Render Distance** - Hides parts beyond the render distance slider
-  - Render distance slider (100-5000 studs)
+- **Distance Culling** - Renders out parts beyond the cull distance
+  - Cull Distance slider (50-3000 studs)
+  - Cull Batch slider (50-2000)
 - **Throttle Sounds** - Pauses sounds beyond max distance, turns them down past half
   - Max distance slider (20-500)
 - **Hide Other Players** - Hides every other player's character parts
