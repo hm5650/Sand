@@ -26,7 +26,7 @@ Raw Loadstring:
 
 *(Cached by GitHub.)*
 ```lua
-local SandCC = loadstring(game:HttpGet("https://raw.gilocal SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/Sand/main/Sand.lua"))({
+local SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/Sand/main/Sand.lua"))({
     createwindui = true, -- true/false     / allow creating Wind UI (you'll need to rejoin and set the boolean to 'true' and rejoin if you need to change something)
     autoload = true, -- true/false            / allow autoloading
     autosave = true, -- true/false           / allow autosaving
@@ -133,9 +133,12 @@ A quick-reference of features that Sand.cc has :p
 - **Distance Culling** - Renders out parts beyond the cull distance
   - Cull Distance slider (50-3000 studs)
   - Cull Batch slider (50-2000)
+  - Cull hysteresis slider (0.02-0.5)
+  - Anchor culled parts toggle
 - **Throttle Sounds** - Pauses sounds beyond max distance, turns them down past half
   - Max distance slider (20-500)
 - **Hide Other Players** - Hides every other player's character parts
+- **Hide NPC Rigs** - Hides un-anchored Humanoid models that aren't players
 - **Hide Nametags** - Hides name/health displays above other players
 - **Remove Player Accessories** - Detaches hats and accessories from other players
 - **Remove Player Clothing** - Detaches shirts, pants and graphic shirts from other players
@@ -209,8 +212,8 @@ A quick-reference of features that Sand.cc has :p
 - **Protect Gravel.cc** - Stops Sand's features from touching Gravel.cc's ESP, highlights, rings, helper parts and GUIs
 - **Gravel-friendly mode** - makes Sand.cc overall friendlier to Gravel
 - **Re-run Gravel after rejoin** - If Gravel.cc is running when AutoFlags rejoins you, queues Gravel.cc to start again in the new server
-- **Smooth activation** - Turns features on in slices instead of all at once, so enabling a lot of stuff on a giant map doesn't spike your lag.
-    - Slice Budget slider (1-16 ms)
+- **Smooth activation** - Turns features on in slices instead of all at once, so enabling a lot of stuff on a giant map doesn't spike your lag
+  - Slice Budget slider (1-16 ms)
 - **Enable Everything** - Turns on every feature
 - **Disable Everything** - Turns off every feature
 - **Reset to Defaults** - Same as Disable Everything but also resets all sliders/inputs
