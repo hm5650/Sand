@@ -3159,9 +3159,27 @@ end
 
 local function presetSave()
     local name = trimStr(presetQuery):sub(1, 40)
+    local auto = false
     if name == "" then
-        notify("Sand", "Type a name in the box first, silly :p")
-        return
+        local nm = "Unknown Game"
+        pcall(function()
+            local info = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+            if info and info.Name then nm = info.Name end
+        end)
+        if nm ~= "Unknown Game" then
+            local ab = ""
+            for word in nm:gmatch("%a[%w]*") do ab = ab .. word:sub(1, 1):upper() end
+            if #ab >= 2 then
+                name = ab:sub(1, 8)
+            else
+                local compact = (nm:gsub("[^%w]", ""))
+                if #compact >= 2 then name = compact:sub(1, 12) end
+            end
+        end
+        if name == "" then
+            name = "Preset_" .. os.date("%Y-%m-%d_%H-%M-%S")
+        end
+        auto = true
     end
     if not fsReady() then
         notify("Sand", "This executor has no file functions, can't save presets :(")
@@ -3176,13 +3194,12 @@ local function presetSave()
     local key = existing or name
     Presets[key] = State.fflagJSON
     if savePresetFile() then
-        notify("Sand", (existing and "Overwrote " or "Stashed ") .. "\"" .. key .. "\" (" .. presetFlagCount(State.fflagJSON) .. " flags) in the sand pile :3")
+        notify("Sand", (existing and "Overwrote " or "Stashed ") .. "\"" .. key .. "\"" .. (auto and " (auto-named from the game)" or "") .. " (" .. presetFlagCount(State.fflagJSON) .. " flags) in the sand pile :3")
     else
         notify("Sand", "Couldn't write the preset file (see console) :c")
     end
     refreshPresetList()
 end
-
 local function presetLoad()
     local q = trimStr(presetQuery)
     if q == "" then
@@ -3241,7 +3258,88 @@ local function presetDelete()
     notify("Sand", "Yeeted \"" .. q .. "\" into the void :3")
     refreshPresetList()
 end
-
+local function presetDeleteAll()
+    local total = 0
+    for _ in pairs(Presets) do total = total + 1 end
+    if total == 0 then
+        notify("Sand", "where da presets")
+        return false
+    end
+    if not fsReady() then
+        notify("Sand", "This executor can't delete files :(")
+        return false
+    end
+    if not (WindUI and WindUI.Popup) then
+        notify("Sand", "Can't show the confirm popup, so nothing was deleted :o")
+        return false
+    end
+    local confirmCount, maxConfirm = 0, 3
+    local titles = { "u sure bout dat??", "fr fr?", "ARE U RLY SUPER DUPER SURE???", "THINK ABOUT THE PRESETS FAMILY", "SURE SURELY SUREY??", "THE SAND REMEMBERS" }
+    local yeses = { "Yes", "Yeah", "YESSIRSKI!", "HELL YA", "IM FR", "IM SO SURE THAT IM SURE!!", "PRESETS GO TO HELL!!" }
+    local nos = { "Nah", "Pass", "HECK NAH", "NOOO", "OH NOES", "NO I LIKE MAH PRESETS" }
+    local function pick(t) return t[math.random(1, #t)] end
+    local show
+    local function doDelete()
+        local names = {}
+        for name in pairs(Presets) do names[#names + 1] = name end
+        Presets = {}
+        local ok = savePresetFile()
+        -- clear autoload references to deleted presets
+        local mem, changed = PresetAuto.read(), false
+        for id, d in pairs(mem) do
+            if type(d) ~= "table" or (type(d.presetName) == "string" and not names) then
+                -- no-op
+            end
+            if type(d) == "table" and type(d.presetName) == "string" then
+                local stillExists = false
+                for _, n in ipairs(names) do
+                    if n == d.presetName then stillExists = true break end
+                end
+                if not stillExists then
+                    mem[id] = nil
+                    changed = true
+                end
+            end
+        end
+        if changed then PresetAuto.write(mem) end
+        if ok then
+            notify("Sand", string.format("Deleted ALL %d flag presets :p", #names))
+        else
+            notify("Sand", "Couldn't rewrite the preset file (see console) :c")
+        end
+        refreshPresetList()
+    end
+    show = function()
+        local yes, no = pick(yeses), pick(nos)
+        local ok = pcall(function()
+            WindUI:Popup({
+                Title = pick(titles),
+                Icon = "trash",
+                Content = string.format(
+                    "This will permanently delete ALL %d flag presets!\n\nThis can't be undone.\n\nConfirmation %d/%d - click '%s' to proceed",
+                    total, confirmCount + 1, maxConfirm, yes),
+                Buttons = {
+                    { Title = yes, Icon = "check", Variant = "Danger", Callback = function()
+                        confirmCount = confirmCount + 1
+                        if confirmCount >= maxConfirm then
+                            confirmCount = 0
+                            doDelete()
+                        else
+                            show()
+                        end
+                    end },
+                    { Title = no, Icon = "x", Variant = "Secondary", Callback = function()
+                        confirmCount = 0
+                        notify("Sand", "ofc u picked no XD", 4)
+                    end },
+                },
+            })
+        end)
+        if not ok then notify("Sand", "The confirm popup broke, so nothing was deleted :o") end
+    end
+    show()
+    return true
+end
 local function presetSetAutoload()
     local q = trimStr(presetQuery)
     if q == "" then
@@ -4619,7 +4717,7 @@ local function buildUI()
         ff:Space()
         ff:Button({
             Title = "Save/Overwrite",
-            Desc = "Stores the JSON above under that name.\nSame name = overwrites it.",
+            Desc = "Stores the JSON above under that name.\nSame name = overwrites it :p\nBlank = 'XXX' auto-gen",
             Icon = "save",
             Justify = "Center",
             Callback = presetSave,
@@ -4638,6 +4736,14 @@ local function buildUI()
             Justify = "Center",
             Color = Color3.fromHex("#ff4830"),
             Callback = presetDelete,
+        })
+        ff:Button({
+            Title = "Delete All Presets",
+            Desc = "Permanently deletes EVERY flag preset D:",
+            Icon = "delete",
+            Justify = "Center",
+            Color = Color3.fromHex("#ff4830"),
+            Callback = function() presetDeleteAll() end,
         })
         ff:Space()
         ff:Button({
@@ -4758,7 +4864,7 @@ local function buildUI()
     ct:Space()
     ct:Button({
         Title = "Save/Overwrite",
-        Desc = "Saves yer save leave blank for auto-gen and type same saveName for overwrite :p",
+        Desc = "Saves yer save type a name or overwrite it by typing the same name\nBlank = 'XXX' auto-gen",
         Icon = "save",
         Justify = "Center",
         Callback = function() SaveSys.save(SaveSys.query) end,
