@@ -563,6 +563,26 @@ local function enqueue(fn)
         Working = false
     end)
 end
+local Pacer = { notify = nil }
+function Pacer.budget()
+    if State.staggerEnable == false then return 0.05 end
+    return math.clamp((tonumber(State.staggerBudget) or 4) / 1000, 0.001, 0.016)
+end
+function Pacer.new(size)
+    local budget = Pacer.budget()
+    if size and size > 30000 and State.staggerEnable ~= false then
+        budget = math.max(0.001, budget * 0.6)
+    end
+    local last = os.clock()
+    return function(force)
+        if force or os.clock() - last >= budget then
+            task.wait()
+            last = os.clock()
+            return true
+        end
+        return false
+    end
+end
 local PartCache = {
     parts = {},
     set = setmetatable({}, { __mode = "k" }),
@@ -589,13 +609,14 @@ local function startPartCache()
         PartCache.scanning = true
         task_("partCacheScan", function()
             local all = Workspace:GetDescendants()
+            local pace = Pacer.new(#all)
             for i = 1, #all do
                 local inst = all[i]
                 if isPartCandidate(inst) and not PartCache.set[inst] then
                     PartCache.set[inst] = true
                     PartCache.parts[#PartCache.parts + 1] = inst
                 end
-                if i % 2000 == 0 then task.wait() end
+                if i % 64 == 0 then pace() end
             end
             PartCache.scanning = false
         end)
@@ -612,6 +633,7 @@ local function eachCachedPart(fn)
     local parts = PartCache.parts
     local keep = 1
     local n = #parts
+    local pace = Pacer.new(n)
     for i = 1, n do
         local inst = parts[i]
         if inst and inst.Parent ~= nil then
@@ -628,13 +650,14 @@ local function eachCachedPart(fn)
                 return
             end
         end
-        if i % 2000 == 0 then task.wait() end
+        if i % 64 == 0 then pace() end
     end
     for j = keep, n do parts[j] = nil end
 end
 
 local function scan(list)
     local all = Workspace:GetDescendants()
+    local pace = Pacer.new(#all)
     for i = 1, #all do
         local inst = all[i]
         if not isGravelInstance(inst) then
@@ -643,7 +666,7 @@ local function scan(list)
                 if f.active then pcall(f.onInstance, f, inst) end
             end
         end
-        if i % 2500 == 0 then task.wait() end
+        if i % 16 == 0 then pace() end
     end
 end
 
@@ -668,8 +691,13 @@ end
 
 local function runActivate(list)
     local toScan = {}
+    local big = State.staggerEnable ~= false and #list >= 6
+    if big and Pacer.notify then
+        pcall(Pacer.notify, "Sand", "Turning on " .. #list .. " features in slices so the game doesn't hitch :3")
+    end
+    local pace = Pacer.new()
     for _, f in ipairs(list) do
-        if alive and not f.active then
+        if alive and not f.active and State[f.key] then
             f.active = true
             f.touched = {}
             if f.apply then
@@ -677,10 +705,14 @@ local function runActivate(list)
                 if not ok then warnf(f.title .. ": " .. tostring(err)) end
             end
             if f.onInstance then toScan[#toScan + 1] = f end
+            pace(big)
         end
     end
     refreshHook()
     if #toScan > 0 then scan(toScan) end
+    if big and Pacer.notify then
+        pcall(Pacer.notify, "Sand", "Done turning stuff on :D")
+    end
 end
 
 local function runDeactivate(f)
@@ -1516,11 +1548,14 @@ defineFeature({
     desc = "Mutes every Sound in the world (characters included).",
     apply = function(f)
         f.sounds = f.sounds or weakKeys()
-        for _, d in ipairs(Workspace:GetDescendants()) do
+        local all = Workspace:GetDescendants()
+        local pace = Pacer.new(#all)
+        for i, d in ipairs(all) do
             if d:IsA("Sound") then
                 f.sounds[d] = true
                 touch(f, d, "Volume", 0)
             end
+            if i % 64 == 0 then pace() end
         end
     end,
     onInstance = function(f, inst)
@@ -2715,6 +2750,10 @@ local Controls = {
         desc = "Makes sand.cc friendlier to gravel :p" },
     gravelRequeue = { kind = "toggle", default = true, title = "Re-run Gravel after rejoin",
         desc = "If Gravel.cc is running when AutoFlags rejoins you, queues Gravel.cc to start again in the new server" },
+    staggerEnable = { kind = "toggle", default = true, title = "Smooth activation",
+        desc = "Turns features on in slices instead of all at once, so enabling a lot of stuff on a giant map doesn't spike your lag." },
+    staggerBudget = { kind = "slider", default = 4, min = 1, max = 16, step = 1, title = "Slice budget (ms per frame)",
+        desc = "How long Sand may work each frame while enabling stuff. Lower = smoother but slower, higher = faster but can hitch." },
     bgMusic = { kind = "toggle", default = true, title = "Background music",
         desc = "Just plays Sugary Spire OST called ''Results!'' ig... :p" },
     autoFlags = { kind = "toggle", default = false, title = "AutoFlags",
@@ -2757,7 +2796,8 @@ end
 
 local SaveSys = {
     appearance = { uiTheme = true, uiTransparency = true, textCursor = true, textCursor2 = true, bgMusic = true,
-        gravelProtect = true, gravelFriendly = true, gravelRequeue = true },
+        gravelProtect = true, gravelFriendly = true, gravelRequeue = true,
+        staggerEnable = true, staggerBudget = true },
     saveFolder = cfg.folder .. "/Saves",
     assetFolder = cfg.folder .. "/assets",
     memoryFile = cfg.folder .. "/assets/memory.json",
@@ -2873,6 +2913,8 @@ local function notify(title, content, duration)
         pcall(function() WindUI:Notify({ Title = title, Content = content, Duration = duration or 3 }) end)
     end
 end
+
+Pacer.notify = notify
 
 local function restoreFFlags()
     if not fflagReady() then
@@ -5020,6 +5062,8 @@ local function buildUI()
     addControl(ct, "gravelProtect")
     addControl(ct, "gravelFriendly")
     addControl(ct, "gravelRequeue")
+    addControl(ct, "staggerEnable")
+    addControl(ct, "staggerBudget")
     ct:Space()
 ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
     enableAll()
