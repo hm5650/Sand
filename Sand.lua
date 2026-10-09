@@ -4057,7 +4057,7 @@ Runtime.rng4Convo = {
       "and sand is even smaller gravel", "so sand is crushed crushed rocks", "mind blown :o", },
     { typesp = "3.5", "dustin lucas will mike me-", "adrian christian hernandez",
       "or the locals call me 'A'", "dustin lucas will mike STO-", "adrian christian hernandez", },
-    { "the file size is 100kb..", "I'm fr", "D:", },
+    { "the file size is 200kb..", "I'm fr", "D:", },
     { typesp = "2", "I AM A SURGEON", "I AM A SURGEON", "I AM- IAM A SURGEON", "IAM A SURGEON", },
     { "u ever just", "open a script", "and it works", "first try?", "yea me neither",
       "this is like my 50th version", },
@@ -5041,7 +5041,7 @@ end })
 
     local at = Tabs.about
     at:Section({ Title = "Sand", TextSize = 24 })
-    at:Section({ Title = "A random script that hates making things pretty and likes fps and also extremely reversible :p\n \nalso this script is better verison of the deprecated script i made called ''Optiz'' if yer wondering :1\n \nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3\n \nif u used a snippet pweaty pwease credit me 3;", TextSize = 16 })
+    at:Section({ Title = "A random script that hates making things pretty and likes fps and also extremely reversible :p\n \nalso this script is better verison of the deprecated script i made called ''Optiz'' if yer wondering :1\nalso sand.cc ghost updates aswell :p\n \nuse the Sand.cc larper called ''Gravel.cc'' wit dis :3\n \nif u used a snippet pweaty pwease credit me 3;", TextSize = 16 })
     at:Space()
     at:Paragraph({
         Title = "Code",
