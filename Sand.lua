@@ -332,8 +332,9 @@ end
 
 local function isProtectedName(name)
     local n = string.lower(tostring(name or ""))
+    if string.find(n, UNIQ, 1, true) then return true end
     for i = 1, #istg do
-        if string.find(n, istg[i], 1, true) then return true end
+        if string.find(n, string.lower(istg[i]), 1, true) then return true end
     end
     for i = 1, #donthurtgravelplz do
         if string.find(n, donthurtgravelplz[i], 1, true) then return true end
@@ -368,6 +369,7 @@ local GRAVEL_NAMES = {
 local GRAVEL_TOOLS = { ["go invis"] = true, [">:3"] = true, [":3"] = true }
 local function isGravelGuiName(name)
     local n = string.lower(tostring(name or ""))
+    if string.find(n, UNIQ, 1, true) then return true end
     if string.find(n, "gravel", 1, true) or string.find(n, "windui", 1, true) then return true end
     for i = 1, #donthurtgravelplz do
         if string.find(n, donthurtgravelplz[i], 1, true) then return true end
@@ -655,8 +657,19 @@ local function eachCachedPart(fn)
     for j = keep, n do parts[j] = nil end
 end
 
+function Runtime.scanRoots()
+    local roots = { Workspace, Lighting, SoundService }
+    local pg = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if pg then roots[#roots + 1] = pg end
+    return roots
+end
+
 local function scan(list)
-    local all = Workspace:GetDescendants()
+    local all = {}
+    for _, root in ipairs(Runtime.scanRoots()) do
+        local okD, d = pcall(root.GetDescendants, root)
+        if okD and type(d) == "table" then table.move(d, 1, #d, #all + 1, all) end
+    end
     local pace = Pacer.new(#all)
     for i = 1, #all do
         local inst = all[i]
@@ -670,22 +683,26 @@ local function scan(list)
     end
 end
 
-local addedConn
+local addedConns
 local function refreshHook()
     local need = false
     for _, f in ipairs(InstFeatures) do
         if f.active then need = true break end
     end
-    if need and not addedConn then
-        addedConn = Workspace.DescendantAdded:Connect(function(inst)
+    if need and not addedConns then
+        addedConns = {}
+        local function onAdded(inst)
             if isGravelInstance(inst) then return end
             for _, f in ipairs(InstFeatures) do
                 if f.active then pcall(f.onInstance, f, inst) end
             end
-        end)
-    elseif not need and addedConn then
-        addedConn:Disconnect()
-        addedConn = nil
+        end
+        for _, root in ipairs(Runtime.scanRoots()) do
+            addedConns[#addedConns + 1] = root.DescendantAdded:Connect(onAdded)
+        end
+    elseif not need and addedConns then
+        for _, c in ipairs(addedConns) do pcall(function() c:Disconnect() end) end
+        addedConns = nil
     end
 end
 
@@ -736,6 +753,12 @@ local function runDeactivate(f)
     end
 end
 
+function Runtime.featureSupported(f)
+    if not f.supported then return true end
+    local ok, res = pcall(f.supported)
+    return ok and res ~= false
+end
+
 local reconcilePending = false
 local function reconcile()
     if reconcilePending then return end
@@ -744,9 +767,10 @@ local function reconcile()
         reconcilePending = false
         local on, off = {}, {}
         for _, f in ipairs(Features) do
-            if State[f.key] and not f.active then
+            local want = State[f.key] and Runtime.featureSupported(f)
+            if want and not f.active then
                 on[#on + 1] = f
-            elseif not State[f.key] and f.active then
+            elseif not want and f.active then
                 off[#off + 1] = f
             end
         end
@@ -755,20 +779,53 @@ local function reconcile()
     end)
 end
 
-local function paramChanged(key)
-    for _, g in ipairs(ParamIndex[key] or {}) do
-        if g.active then
-            enqueue(function()
-                if not g.active then return end
-                if g.reactivate then
-                    runDeactivate(g)
-                    if State[g.key] then runActivate({ g }) end
-                elseif g.apply then
-                    pcall(g.apply, g)
+function Runtime.refreshParams(keys, pre)
+    local seen = {}
+    for key in pairs(keys) do
+        for _, g in ipairs(ParamIndex[key] or {}) do
+            if not seen[g] and (pre == nil or pre[g]) then
+                seen[g] = true
+                local redo = g.reactivate or (g.onInstance and not g.apply)
+                if not redo and g.reactivateOn then
+                    for k in pairs(keys) do
+                        if g.reactivateOn[k] then redo = true break end
+                    end
                 end
-            end)
+                enqueue(function()
+                    if not (g.active and State[g.key]) then return end
+                    if redo then
+                        runDeactivate(g)
+                        if alive and State[g.key] then runActivate({ g }) end
+                    elseif g.apply then
+                        pcall(g.apply, g)
+                    end
+                end)
+            end
         end
     end
+end
+
+local function paramChanged(key)
+    local pre = {}
+    for _, f in ipairs(Features) do
+        if f.active then pre[f] = true end
+    end
+    Runtime.refreshParams({ [key] = true }, pre)
+end
+
+local function applyChanges(changed)
+    local pre, params, any = {}, {}, false
+    for _, f in ipairs(Features) do
+        if f.active then pre[f] = true end
+    end
+    for key in pairs(changed or {}) do
+        if not FeatureByKey[key] and ParamIndex[key] then
+            params[key] = true
+            any = true
+        end
+    end
+    reconcile()
+    if any then Runtime.refreshParams(params, pre) end
 end
 
 local GREY = Color3.fromRGB(163, 162, 165)
@@ -809,12 +866,25 @@ local function stashAndDetach(f, inst, parent)
     inst.Parent = nil
 end
 local function restoreStash(f)
-    for _, s in ipairs(f.stash or {}) do
+    local list = f.stash or {}
+    f.stash = {}
+    local restored = {}
+    for i = #list, 1, -1 do
+        local s = list[i]
         if s.obj and s.obj.Parent == nil and s.parent then
             pcall(setProp, s.obj, "Parent", s.parent)
+            if s.obj.Parent ~= nil then restored[#restored + 1] = s.obj end
         end
     end
-    f.stash = {}
+    if alive and #restored > 0 then
+        for _, h in ipairs(Features) do
+            if h ~= f and h.active and h.onInstance then
+                for _, obj in ipairs(restored) do
+                    if obj.Parent ~= nil then pcall(h.onInstance, h, obj) end
+                end
+            end
+        end
+    end
 end
 
 local function otherCharacters()
@@ -1132,6 +1202,7 @@ defineFeature({
         if not f.conn then
             f.conn = Lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
                 if alive and f.active and Lighting.ClockTime ~= State.frozenTime then
+                    f.serverClock = Lighting.ClockTime
                     pcall(setProp, Lighting, "ClockTime", State.frozenTime)
                 end
             end)
@@ -1143,6 +1214,10 @@ defineFeature({
             pcall(function() f.conn:Disconnect() end)
             f.conn = nil
         end
+        if f.serverClock and Orig.ClockTime and Orig.ClockTime[Lighting] ~= nil then
+            Orig.ClockTime[Lighting] = f.serverClock
+        end
+        f.serverClock = nil
     end,
 })
 
@@ -1471,6 +1546,20 @@ defineFeature({
     end,
     tick = reassert,
     cleanup = function(f) unwatchCharacters(f) end,
+})
+
+defineFeature({
+    key = "hideNPCs", title = "Hide NPC Rigs",
+    desc = "Hides un-anchored Humanoid models that aren't players.",
+    onInstance = function(f, inst)
+        if inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") then
+            if not Players:GetPlayerFromCharacter(inst) then
+                for _, d in ipairs(inst:GetDescendants()) do
+                    if d:IsA("BasePart") then touch(f, d, "Transparency", 1) end
+                end
+            end
+        end
+    end,
 })
 
 defineFeature({
@@ -2097,10 +2186,18 @@ defineFeature({
             warnOnce("setfpscap isn't available in this executor")
             return
         end
+        if f.origCap == nil then
+            local okC, cur = false, nil
+            if type(getfpscap) == "function" then okC, cur = pcall(getfpscap) end
+            f.origCap = (okC and tonumber(cur)) or 60
+        end
         pcall(setfpscap, State.fpsCap)
     end,
     tick = reassert,
-    cleanup = function() if setfpscap then pcall(setfpscap, 60) end end,
+    cleanup = function(f)
+        if setfpscap then pcall(setfpscap, f.origCap or 60) end
+        f.origCap = nil
+    end,
 })
 
 defineFeature({
@@ -2278,10 +2375,9 @@ defineFeature({
         pruneFrozen(f)
         local myChar = LocalPlayer.Character
         local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if not myRoot then return end
         local cam = Workspace.CurrentCamera
         local limit = effectiveDistance()
-        for _, char in ipairs(otherCharacters()) do
+        for _, char in ipairs(myRoot and otherCharacters() or {}) do
             local container = animContainer(char)
             local root = char:FindFirstChild("HumanoidRootPart")
             if container and root then
@@ -2435,113 +2531,328 @@ end
 
 defineFeature({
     key = "distanceCulling", title = "Distance Culling",
-    desc = "Renders out distant parts",
-    params = { "cullDistance", "cullBatch" },
+    desc = "Renders out distant parts :0",
+    params = { "cullDistance", "cullBatch", "cullHysteresis", "cullAnchorParts", "cullShrinkParts", "cullEffects" },
+    reactivateOn = { cullAnchorParts = true, cullShrinkParts = true, cullEffects = true },
     apply = function(f)
         f.hidden = f.hidden or weakKeys()
+        f.origProps = f.origProps or weakKeys()
+        f.effectCache = f.effectCache or {}
+        f.effectSet = f.effectSet or weakKeys()
+        f.effectHidden = f.effectHidden or weakKeys()
         if f.conn then return end
         f.cursor, f.lastOrigin, f.lastPass = 1, nil, 0
+        f.effectCursor = 1
+        f.visibleList = f.visibleList or {}
+        f.visibleSet = f.visibleSet or weakKeys()
+        f.recheckQueue = f.recheckQueue or {}
+
+        local function saveOrig(inst, prop)
+            local bag = f.origProps[inst]
+            if not bag then bag = {}; f.origProps[inst] = bag end
+            if bag[prop] == nil then
+                local ok, v = pcall(function() return inst[prop] end)
+                if ok then bag[prop] = v end
+            end
+        end
+
+        local function restoreProps(inst)
+            local bag = f.origProps[inst]
+            if not bag then return end
+            for prop, v in pairs(bag) do
+                if Orig[prop] and Orig[prop][inst] ~= nil then
+                    untouchOne(f, inst, prop)
+                elseif inst.Parent ~= nil then
+                    pcall(setProp, inst, prop, v)
+                end
+            end
+            f.origProps[inst] = nil
+        end
+
+        local function hidePart(inst)
+            if f.hidden[inst] then return end
+            f.hidden[inst] = true
+            saveOrig(inst, "Transparency")
+            saveOrig(inst, "CanCollide")
+            saveOrig(inst, "CanTouch")
+            saveOrig(inst, "CanQuery")
+            saveOrig(inst, "Anchored")
+            saveOrig(inst, "LocalTransparencyModifier")
+
+            touch(f, inst, "LocalTransparencyModifier", 1)
+            if inst.Transparency < 1 then
+                touch(f, inst, "Transparency", 1)
+            end
+            touch(f, inst, "CanCollide", false)
+            touch(f, inst, "CanTouch", false)
+            touch(f, inst, "CanQuery", false)
+            if State.cullAnchorParts ~= false and not inst.Anchored then
+                touch(f, inst, "Anchored", true)
+            end
+            for _, child in ipairs(inst:GetDescendants()) do
+                if child:IsA("Decal") or child:IsA("Texture") then
+                    saveOrig(child, "Transparency")
+                    touch(f, child, "Transparency", 1)
+                elseif child:IsA("SurfaceAppearance") then
+                    saveOrig(child, "AlphaMode")
+                    saveOrig(child, "Color")
+                    saveOrig(child, "Transparency")
+                    touch(f, child, "AlphaMode", Enum.SurfaceAppearanceAlphaMode.Overlay)
+                    touch(f, child, "Color", Color3.new(1, 1, 1))
+                    touch(f, child, "Transparency", 1)
+                elseif child:IsA("PointLight") or child:IsA("SpotLight") or child:IsA("SurfaceLight") then
+                    saveOrig(child, "Enabled")
+                    touch(f, child, "Enabled", false)
+                elseif child:IsA("ParticleEmitter") or child:IsA("Trail") or child:IsA("Beam")
+                    or child:IsA("Fire") or child:IsA("Smoke") or child:IsA("Sparkles") then
+                    saveOrig(child, "Enabled")
+                    touch(f, child, "Enabled", false)
+                elseif child:IsA("BasePart") then
+                    if not f.hidden[child] then
+                        f.hidden[child] = true
+                        saveOrig(child, "LocalTransparencyModifier")
+                        saveOrig(child, "Transparency")
+                        touch(f, child, "LocalTransparencyModifier", 1)
+                        if child.Transparency < 1 then
+                            touch(f, child, "Transparency", 1)
+                        end
+                    end
+                end
+            end
+        end
+
+        local function showPart(inst)
+            if not f.hidden[inst] then return end
+            f.hidden[inst] = nil
+
+            untouchOne(f, inst, "LocalTransparencyModifier")
+            untouchOne(f, inst, "Transparency")
+            untouchOne(f, inst, "CanCollide")
+            untouchOne(f, inst, "CanTouch")
+            untouchOne(f, inst, "CanQuery")
+            untouchOne(f, inst, "Anchored")
+
+            for _, child in ipairs(inst:GetDescendants()) do
+                if f.hidden[child] then
+                    f.hidden[child] = nil
+                end
+                if child:IsA("Decal") or child:IsA("Texture") then
+                    untouchOne(f, child, "Transparency")
+                elseif child:IsA("SurfaceAppearance") then
+                    untouchOne(f, child, "AlphaMode")
+                    untouchOne(f, child, "Color")
+                    untouchOne(f, child, "Transparency")
+                elseif child:IsA("PointLight") or child:IsA("SpotLight") or child:IsA("SurfaceLight")
+                    or child:IsA("ParticleEmitter") or child:IsA("Trail") or child:IsA("Beam")
+                    or child:IsA("Fire") or child:IsA("Smoke") or child:IsA("Sparkles") then
+                    untouchOne(f, child, "Enabled")
+                elseif child:IsA("BasePart") then
+                    untouchOne(f, child, "LocalTransparencyModifier")
+                    untouchOne(f, child, "Transparency")
+                end
+            end
+            restoreProps(inst)
+        end
+        local function getEffectPosition(inst)
+            local par = inst.Parent
+            if not par then return nil end
+            if par:IsA("BasePart") then return par.Position end
+            if par:IsA("Attachment") then
+                local ok, wp = pcall(function() return par.WorldPosition end)
+                if ok and wp then return wp end
+                local p2 = par.Parent
+                if p2 and p2:IsA("BasePart") then return p2.Position end
+            end
+            if par:IsA("Model") then
+                local ok, cf = pcall(function() return par:GetPivot() end)
+                if ok and cf then return cf.Position end
+            end
+            return nil
+        end
+
+        local function isEffectCandidate(inst)
+            local c = inst.ClassName
+            return c == "ParticleEmitter" or c == "Trail" or c == "Beam"
+                or c == "Fire" or c == "Smoke" or c == "Sparkles"
+        end
+
+        local function registerEffect(inst)
+            if f.effectSet[inst] then return end
+            f.effectSet[inst] = true
+            f.effectCache[#f.effectCache + 1] = inst
+        end
+
+        local function hideEffect(inst)
+            if f.effectHidden[inst] then return end
+            f.effectHidden[inst] = true
+            if inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") then
+                saveOrig(inst, "Enabled")
+                touch(f, inst, "Enabled", false)
+            elseif inst:IsA("Fire") or inst:IsA("Smoke") or inst:IsA("Sparkles") then
+                saveOrig(inst, "Enabled")
+                pcall(function() touch(f, inst, "Enabled", false) end)
+            end
+        end
+
+        local function showEffect(inst)
+            if not f.effectHidden[inst] then return end
+            f.effectHidden[inst] = nil
+            untouchOne(f, inst, "Enabled")
+            restoreProps(inst)
+        end
+
+        f.hidePart = hidePart
+        f.showPart = showPart
+        f.registerEffect = registerEffect
+        f.hideEffect = hideEffect
+        f.showEffect = showEffect
+        if not f.effectPrimed then
+            f.effectPrimed = true
+            task_("effectCacheScan", function()
+                local all = Workspace:GetDescendants()
+                local pace = Pacer.new(#all)
+                for i = 1, #all do
+                    local inst = all[i]
+                    if isEffectCandidate(inst) then
+                        registerEffect(inst)
+                    end
+                    if i % 64 == 0 then pace() end
+                end
+            end)
+        end
+        if not f.effectConn then
+            f.effectConn = Workspace.DescendantAdded:Connect(function(inst)
+                if not alive or not f.active then return end
+                if isEffectCandidate(inst) then registerEffect(inst) end
+            end)
+        end
+
         f.conn = RunService.Heartbeat:Connect(function()
             if not alive or not f.active then return end
             local myChar = LocalPlayer.Character
             local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
             if not myRoot then return end
             local origin = myRoot.Position
+            local limit = State.cullDistance
+            local hysteresis = clamp(State.cullHysteresis or 0.15, 0.02, 0.5)
+            local showAt = limit * (1 - hysteresis)
             local parts = PartCache.parts
             local total = #parts
             if f.cursor > total then
                 local moved = not f.lastOrigin or (origin - f.lastOrigin).Magnitude > 6
-                if moved or os.clock() - f.lastPass > 3 then
+                local stale = os.clock() - f.lastPass > 3
+                if moved or stale then
                     f.cursor, f.lastOrigin, f.lastPass = 1, origin, os.clock()
-                else
-                    return
                 end
             end
-            local limit = State.cullDistance
-            local showAt = limit * 0.9
-            local stop = math.min(total, f.cursor + clamp(State.cullBatch or 300, 50, 2000) - 1)
-            for i = f.cursor, stop do
-                local inst = parts[i]
-                if inst and inst.Parent and inst:IsA("BasePart") and not inCharacter(inst) then
-                    local okD, d = pcall(function()
-                        return (inst.Position - origin).Magnitude - inst.Size.Magnitude * 0.5
-                    end)
-                    if okD then
-                        local isHidden = f.hidden[inst]
-                        if not isHidden and d > limit and not isInteractable(inst) then
-                            f.hidden[inst] = true
-                            touch(f, inst, "Transparency", 1)
-                            touch(f, inst, "CanCollide", false)
-                            touch(f, inst, "CanTouch", false)
-                            if not inst.Anchored then
-                                touch(f, inst, "Anchored", true)
-                            end
-                            for _, child in ipairs(inst:GetChildren()) do
-                                if child:IsA("Decal") or child:IsA("Texture") then
-                                    touch(f, child, "Transparency", 1)
-                                elseif child:IsA("SurfaceAppearance") then
-                                    touch(f, child, "AlphaMode", Enum.SurfaceAppearanceAlphaMode.Overlay)
-                                    touch(f, child, "Color", Color3.new(1, 1, 1))
-                                    touch(f, child, "Transparency", 1)
-                                elseif child:IsA("PointLight")
-                                    or child:IsA("SpotLight")
-                                    or child:IsA("SurfaceLight") then
-                                    touch(f, child, "Enabled", false)
-                                end
-                            end
-                        elseif isHidden and d < showAt then
-                            f.hidden[inst] = nil
-                            untouchOne(f, inst, "Transparency")
-                            untouchOne(f, inst, "CanCollide")
-                            untouchOne(f, inst, "CanTouch")
-                            untouchOne(f, inst, "Anchored")
-                            for _, child in ipairs(inst:GetChildren()) do
-                                if child:IsA("Decal") or child:IsA("Texture") then
-                                    untouchOne(f, child, "Transparency")
-                                elseif child:IsA("SurfaceAppearance") then
-                                    untouchOne(f, child, "AlphaMode")
-                                    untouchOne(f, child, "Color")
-                                    untouchOne(f, child, "Transparency")
-                                elseif child:IsA("PointLight")
-                                    or child:IsA("SpotLight")
-                                    or child:IsA("SurfaceLight") then
-                                    untouchOne(f, child, "Enabled")
+
+            if f.cursor <= total then
+                local batch = clamp(State.cullBatch or 300, 50, 2000)
+                local stop = math.min(total, f.cursor + batch - 1)
+
+                for i = f.cursor, stop do
+                    local inst = parts[i]
+                    if inst and inst.Parent and inst:IsA("BasePart") and not inCharacter(inst) then
+                        local skip = false
+                        local anc = inst.Parent
+                        while anc and anc ~= Workspace do
+                            if f.hidden[anc] then skip = true break end
+                            anc = anc.Parent
+                        end
+                        if not skip then
+                            local okD, d = pcall(function()
+                                return (inst.Position - origin).Magnitude - inst.Size.Magnitude * 0.5
+                            end)
+                            if okD then
+                                local isHidden = f.hidden[inst]
+                                if not isHidden and d > limit then
+                                    if not isInteractable(inst) then
+                                        hidePart(inst)
+                                    end
+                                elseif isHidden and d < showAt then
+                                    showPart(inst)
                                 end
                             end
                         end
                     end
                 end
+                f.cursor = stop + 1
             end
-            f.cursor = stop + 1
+            if State.cullEffects ~= false and f.effectCache then
+                local efx = f.effectCache
+                local eTotal = #efx
+                if eTotal > 0 then
+                    local eBatch = clamp(State.cullBatch or 300, 50, 2000)
+                    local eStart = 1
+                    local eStop = math.min(eTotal, eBatch)
+                    if f.effectCursor > eTotal then f.effectCursor = 1 end
+                    local startIdx = f.effectCursor
+                    local count = math.min(eBatch, eTotal)
+                    local written = 0
+                    local keep = 1
+                    for idx = 1, eTotal do
+                        local inst = efx[idx]
+                        if inst and inst.Parent ~= nil then
+                            local inSlice = false
+                            if written < count then
+                                if idx == startIdx or (startIdx + written - 1) % eTotal + 1 == idx then
+                                end
+                            end
+                            efx[keep] = inst
+                            keep = keep + 1
+                        end
+                    end
+                    for idx = keep, eTotal do efx[idx] = nil end
+                    f.effectCursor = 1
+                end
+            end
         end)
+    end,
+    tick = function(f)
+        if f.conn then
+            f.lastOrigin = nil
+        end
     end,
     cleanup = function(f)
         if f.conn then f.conn:Disconnect() f.conn = nil end
+        if f.effectConn then f.effectConn:Disconnect() f.effectConn = nil end
         if f.hidden then
-            for inst in pairs(f.hidden) do
-                if inst.Parent then
-                    untouchOne(f, inst, "Transparency")
-                    untouchOne(f, inst, "CanCollide")
-                    untouchOne(f, inst, "CanTouch")
-                    untouchOne(f, inst, "Anchored")
-                    for _, child in ipairs(inst:GetChildren()) do
-                        if child:IsA("Decal") or child:IsA("Texture") then
-                            untouchOne(f, child, "Transparency")
-                        elseif child:IsA("SurfaceAppearance") then
-                            untouchOne(f, child, "AlphaMode")
-                            untouchOne(f, child, "Color")
-                            untouchOne(f, child, "Transparency")
-                        elseif child:IsA("PointLight")
-                            or child:IsA("SpotLight")
-                            or child:IsA("SurfaceLight") then
-                            untouchOne(f, child, "Enabled")
-                        end
+            local list = {}
+            for inst in pairs(f.hidden) do list[#list + 1] = inst end
+            local pace = Pacer.new(#list)
+            for i, inst in ipairs(list) do
+                if i % 48 == 0 then pace() end
+                if f.showPart then
+                    pcall(f.showPart, inst)
+                else
+                    if inst.Parent then
+                        untouchOne(f, inst, "Transparency")
+                        untouchOne(f, inst, "CanCollide")
+                        untouchOne(f, inst, "CanTouch")
+                        untouchOne(f, inst, "CanQuery")
+                        untouchOne(f, inst, "Anchored")
+                        untouchOne(f, inst, "LocalTransparencyModifier")
                     end
                 end
             end
         end
+        if f.effectHidden then
+            local list = {}
+            for inst in pairs(f.effectHidden) do list[#list + 1] = inst end
+            local pace = Pacer.new(#list)
+            for i, inst in ipairs(list) do
+                if i % 96 == 0 then pace() end
+                if f.showEffect then pcall(f.showEffect, inst) end
+            end
+        end
         f.hidden = nil
+        f.origProps = nil
+        f.effectCache = nil
+        f.effectSet = nil
+        f.effectHidden = nil
+        f.effectPrimed = false
         f.cursor, f.lastOrigin = 1, nil
+        f.effectCursor = 1
     end,
 })
 defineFeature({
@@ -2773,6 +3084,11 @@ local Controls = {
         desc = "Anchored part farther than this distance\nwould get culled" },
     cullBatch = { kind = "slider", default = 300, min = 50, max = 2000, step = 50, title = "Culling batch size",
         desc = "Parts checked per frame. Lower = smoother but slower to catch up, higher = faster but can spike." },
+    cullHysteresis = { kind = "slider", default = 0.15, min = 0.02, max = 0.5, step = 0.01,
+        title = "Cull hysteresis",
+        desc = "Parts show again at (1 - this) × cull distance.\nHigher = less flicker at the edge, but more pop-in." },
+    cullAnchorParts = { kind = "toggle", default = true, title = "Anchor culled parts",
+        desc = "Set Anchored = true on hidden parts.\nBig perf win, but physics parts will freeze in place until re-shown." },
     interval = { kind = "slider", default = 10, min = 3, max = 60, step = 1, title = "Update interval (seconds)",
         desc = "How often the periodic checks run." },
     remoteLimit = { kind = "slider", default = 10, min = 1, max = 60, step = 1, title = "Remote calls per second",
@@ -2929,30 +3245,87 @@ end
 
 local ignorethesebsplz = SaveSys.appearance
 
-local function disableAll()
+local function setMany(entries)
+    --entries = { {key, value}, ... }
+    local changed, n = {}, 0
+    for _, pair in ipairs(entries) do
+        local key, value = pair[1], pair[2]
+        local v = coerce(key, value)
+        if v ~= nil and State[key] ~= v then
+            State[key] = v
+            changed[key] = true
+            n = n + 1
+            if key == "uiTheme" then
+                applyTheme(v)
+            elseif key == "uiTransparency" then
+                applyTransparency(v)
+            end
+        end
+    end
+    if n > 0 then applyChanges(changed) end
+    return n
+end
+
+local function doEnableAll(silent)
+    local touched, changed = {}, {}
     for _, f in ipairs(Features) do
-        if f.key ~= "fastFlags" then
+        if f.key ~= "fastFlags" and Runtime.featureSupported(f) and not State[f.key] then
+            State[f.key] = true
+            changed[f.key] = true
+            touched[#touched + 1] = f.title or f.key
+        end
+    end
+    applyChanges(changed)
+    syncAllUI()
+    return touched
+end
+
+local function doDisableAll(silent)
+    local turnedOff, resetControls, changed = {}, {}, {}
+    for _, f in ipairs(Features) do
+        if f.key ~= "fastFlags" and State[f.key] then
             State[f.key] = false
+            changed[f.key] = true
+            turnedOff[#turnedOff + 1] = f.title or f.key
         end
     end
     for key, def in pairs(Defs) do
-        if def.kind ~= "toggle" and not ignorethesebsplz[key] then
-            State[key] = def.default
+        if def.kind ~= "toggle" and def.kind ~= "input" and not SaveSys.appearance[key] then
+            local v = coerce(key, def.default)
+            if v ~= nil and State[key] ~= v then
+                State[key] = v
+                changed[key] = true
+                resetControls[#resetControls + 1] = Controls[key] and Controls[key].title or key
+            end
         end
     end
-    reconcile()
+    applyChanges(changed)
     syncAllUI()
+    return turnedOff, resetControls
+end
+
+local function disableAll()
+    local off, reset = doDisableAll()
+    local lines = {}
+    if #off > 0 then
+        lines[#lines + 1] = "Turned off " .. #off .. " feature" .. (#off == 1 and "" or "s")
+    else
+        lines[#lines + 1] = "No features were on"
+    end
+    if #reset > 0 then
+        lines[#lines + 1] = "Reset " .. #reset .. " setting" .. (#reset == 1 and "" or "s") .. " to default"
+    end
+    return table.concat(lines, ". ") .. " :3"
 end
 
 local function enableAll()
-    for _, f in ipairs(Features) do
-        if f.key ~= "fastFlags" then
-            State[f.key] = true
-        end
+    local on = doEnableAll()
+    if #on == 0 then
+        return "Everything was already on :3"
     end
-    reconcile()
-    syncAllUI()
+    return "Turned on " .. #on .. " feature" .. (#on == 1 and "" or "s") .. " :D"
 end
+
 local function notify(title, content, duration)
     if WindUI then
         pcall(function() WindUI:Notify({ Title = title, Content = content, Duration = duration or 3 }) end)
@@ -3546,10 +3919,21 @@ function PresetAuto.startup()
 end
 
 local function resetDefaults()
+    local changed = {}
     for key, def in pairs(Defs) do
-        setState(key, def.default, true)
-        syncUI(key)
+        local v = coerce(key, def.default)
+        if v ~= nil and State[key] ~= v then
+            State[key] = v
+            changed[key] = true
+            if key == "uiTheme" then
+                applyTheme(v)
+            elseif key == "uiTransparency" then
+                applyTransparency(v)
+            end
+        end
     end
+    applyChanges(changed)
+    syncAllUI()
     SaveSys.scheduleAppearance()
 end
 
@@ -3679,15 +4063,20 @@ do
     end
 
     local function applyConf(conf, live)
-        local n = 0
+        local n, changed = 0, {}
+        if type(conf) ~= "table" then conf = {} end
         for key, def in pairs(Defs) do
             if not APP[key] then
                 local v = coerce(key, conf[key])
                 if v == nil then v = def.default end
-                if live then setState(key, v, true) else State[key] = v end
+                if State[key] ~= v then
+                    State[key] = v
+                    changed[key] = true
+                end
                 n = n + 1
             end
         end
+        if live then applyChanges(changed) end
         return n
     end
 
@@ -4073,9 +4462,11 @@ local Layout = {
     players = {
         { "f", "freezePlayers" }, { "c", "freezeBehindCamera" }, { "c", "freezeCheckRate" },
         { "f", "distanceCulling" }, { "c", "cullDistance" }, { "c", "cullBatch" },
+        { "c", "cullHysteresis" }, { "c", "cullAnchorParts" },
         { "f", "throttleSounds" },
         { "c", "maxDistance" },
         { "f", "hideOtherPlayers" },
+        { "f", "hideNPCs" },
         { "f", "hideNametags" },
         { "f", "removeAccessories" }, { "f", "removeClothing" }, { "f", "hideTools" },
         { "f", "freezeAllAnimations" },
@@ -4449,6 +4840,35 @@ local function startRNG4()
     if not rng4.tag then return end
     rng4.currentText = ""
     rng4.cursorVisible = true
+local fpstag = PolyWindowRef:Tag({
+    Title = "FPS: 0\nP: 0ms",
+    Icon = "clock",
+    Color = Color3.fromHex("#00ff88")
+})
+if fpstag then
+    local fpsAccum = 0
+    task_("fpsTagUpdater", function()
+        while fpstag and alive do
+            local dt = RunService.Heartbeat:Wait()
+            if not PolyWindowRef then break end
+            fpsAccum = fpsAccum + dt
+            if fpsAccum >= 0.3 then
+                local fps = math.round(1 / math.max(dt, 1e-6))
+                local ping = 0
+                pcall(function()
+                    ping = math.round(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
+                end)
+                if fpstag.SetTitle then
+                    pcall(function()
+                        fpstag:SetTitle("FPS: " .. fps .. "\nP: " .. ping .. "ms")
+                    end)
+                end
+                fpsAccum = fpsAccum - 0.3
+            end
+        end
+    end)
+    Runtime.rng4FpsTag = fpstag
+end
     local function cursorChar()
         local c = State.textCursor
         if type(c) ~= "string" or c == "" then return "_" end
@@ -5110,15 +5530,25 @@ local function buildUI()
     addControl(ct, "staggerEnable")
     addControl(ct, "staggerBudget")
     ct:Space()
-ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
-    enableAll()
-    notify("Sand", "All features switched on")
-end })
+ct:Button({
+    Title = "Enable everything",
+    Icon = "zap",
+    Justify = "Center",
+    Callback = function()
+        local report = enableAll()
+        notify("Sand", report, 5)
+    end,
+})
 ct:Space()
-ct:Button({ Title = "Disable everything", Icon = "power", Justify = "Center", Callback = function()
-    disableAll()
-    notify("Sand", "All features switched off.\nmay take some time")
-end })
+ct:Button({
+    Title = "Disable everything",
+    Icon = "power",
+    Justify = "Center",
+    Callback = function()
+        local report = disableAll()
+        notify("Sand", report, 5)
+    end,
+})
     ct:Space()
     ct:Button({ Title = "Reset to defaults", Icon = "rotate-ccw", Justify = "Center", Callback = function()
         resetDefaults()
@@ -5211,6 +5641,10 @@ at:Paragraph({
     Title = "Sand (09/10/2025)",
     Desc = "autoflags n stuff\nAdded: AutoFlags toggle (auto rejoins after flags/presets get applied, cfg.autoflag works too)\nFixed: Hide Held Tools (now hides tools in the character AND backpack/inventory)",
 })
+at:Paragraph({
+    Title = "Sand (10/10/2025)",
+    Desc = "idk feature stuff >_>\nFixed: Features not properly being applied & being reversible\nAdded: Fpstag (one from gravel :3)\nUpdated: Distance Culling\nBugs Fixed: 14",
+})
 task_("startRNG4", function()
     task.wait(0.5)
     startRNG4()
@@ -5278,9 +5712,18 @@ local function unload()
     if not alive then return end
     alive = false
     killthreads()
-
-    pcall(weirdflash)
+    Jobs, Working = {}, false
     env.Saaaaaaaaaaaaaaaaaaaaaaand_ = false
+    task.spawn(pcall, weirdflash)
+    for i = #Features, 1, -1 do
+        local f = Features[i]
+        if f.active then
+            pcall(runDeactivate, f)
+        end
+    end
+    for _, f in ipairs(Features) do
+        if f.stash and #f.stash > 0 then pcall(restoreStash, f) end
+    end
     for prop, ot in pairs(Orig) do
         for inst, value in pairs(ot) do
             if inst and inst.Parent ~= nil then
@@ -5289,21 +5732,19 @@ local function unload()
             ot[inst] = nil
         end
     end
-    for i = #Features, 1, -1 do
-        local f = Features[i]
-        if f.active then
-            pcall(runDeactivate, f)
-        end
-    end
     if Runtime.rng4 and Runtime.rng4.tag then
         pcall(function() Runtime.rng4.tag:Destroy() end)
         Runtime.rng4.tag = nil
     end
     Runtime.rng4 = nil
     pcall(destroyBGM)
-    if addedConn then
-        pcall(function() addedConn:Disconnect() end)
-        addedConn = nil
+    if addedConns then
+        for _, c in ipairs(addedConns) do pcall(function() c:Disconnect() end) end
+        addedConns = nil
+    end
+    if Runtime.rng4FpsTag then
+        pcall(function() Runtime.rng4FpsTag:Destroy() end)
+        Runtime.rng4FpsTag = nil
     end
     pcall(stopPartCache)
     if PolyWindow then pcall(function() PolyWindow:Destroy() end) end
@@ -5337,14 +5778,7 @@ cfg.setGravelFriendly = function(value)
     return State.gravelFriendly
 end
 cfg.disableAll = disableAll
-cfg.enableAll = function()
-    for _, f in ipairs(Features) do
-        if f.key ~= "fastFlags" then
-            setState(f.key, true)
-            syncUI(f.key)
-        end
-    end
-end
+cfg.enableAll = enableAll
 cfg.unload = unload
 cfg.autoflag = function(value)
     if value == nil then value = not State.autoFlags end
@@ -5449,7 +5883,6 @@ task_("mainTick", function()
     while alive do
         task.wait(clamp(State.interval, 3, 60))
         if not alive then break end
-        if subside_I_I_I_I_I_() then continue end
         pcall(pruneDead)
         for _, f in ipairs(Features) do
             if f.active and f.tick then
