@@ -969,17 +969,62 @@ defineFeature({
 
 defineFeature({
     key = "fullBright", title = "Full Bright",
-    desc = "Bright, flat lighting with global shadows off.",
+    desc = "Bright, flat lighting with global shadows off and all other light sources disabled.",
     apply = function(f)
         stouch(f, Lighting, "Brightness", 2)
         stouch(f, Lighting, "GlobalShadows", false)
         stouch(f, Lighting, "OutdoorAmbient", Color3.new(1, 1, 1))
         stouch(f, Lighting, "Ambient", Color3.new(1, 1, 1))
         stouch(f, Lighting, "ExposureCompensation", 0)
+        for _, holder in ipairs({ Lighting, Workspace:FindFirstChildOfClass("Terrain") }) do
+            if holder then
+                for _, o in ipairs(holder:GetChildren()) do
+                    if o:IsA("Sky") or o:IsA("Atmosphere") or o:IsA("Clouds") then
+                        stashAndDetach(f, o, holder)
+                    end
+                end
+            end
+        end
+        for _, holder in ipairs({ Lighting, Workspace.CurrentCamera }) do
+            if holder then
+                for _, o in ipairs(holder:GetChildren()) do
+                    if o:IsA("PostEffect") then
+                        stouch(f, o, "Enabled", false)
+                    end
+                end
+            end
+        end
+        local function disableLights(parent)
+            if not parent then return end
+            for _, d in ipairs(parent:GetDescendants()) do
+                local c = d.ClassName
+                if c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
+                    touch(f, d, "Enabled", false)
+                    touch(f, d, "Brightness", 0)
+                end
+            end
+        end
+        disableLights(Workspace)
+        disableLights(Lighting)
+    end,
+    onInstance = function(f, inst)
+        if inst:IsA("Sky") or inst:IsA("Atmosphere") or inst:IsA("Clouds") then
+            stashAndDetach(f, inst)
+        end
+        local c = inst.ClassName
+        if c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
+            touch(f, inst, "Enabled", false)
+            touch(f, inst, "Brightness", 0)
+        end
+        if inst:IsA("PostEffect") then
+            touch(f, inst, "Enabled", false)
+        end
     end,
     tick = reassert,
+    cleanup = function(f)
+        restoreStash(f)
+    end,
 })
-
 defineFeature({
     key = "simplifyLighting", title = "Simplify Lighting",
     desc = "Soft shadows, environment lighting, fog and post-processing effects off.",
@@ -5072,7 +5117,7 @@ end })
 ct:Space()
 ct:Button({ Title = "Disable everything", Icon = "power", Justify = "Center", Callback = function()
     disableAll()
-    notify("Sand", "All features switched off.")
+    notify("Sand", "All features switched off.\nmay take some time")
 end })
     ct:Space()
     ct:Button({ Title = "Reset to defaults", Icon = "rotate-ccw", Justify = "Center", Callback = function()
