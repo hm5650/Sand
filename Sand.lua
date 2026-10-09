@@ -362,7 +362,10 @@ local GRAVEL_NAMES = {
     PlayerHighlight = true, DesyncWeld = true, ProxyWeld = true,
     ESPLabel = true, ESPBox = true, HealthBG = true, HealthFill = true, HeadDot = true,
     FOVCircle = true, RingFrame = true, TriggerFOVRing = true, QTContainer = true, TouchFeedback = true,
+    StickZone = true, RingGrabPad = true, RingHolder = true, EditOverlay = true, EditHint = true, EditDone = true,
+    pneumonoultramicroscopicsilicovolcanoconiosis = true, Hippopotomonstrosesquippedaliophobia = true,
 }
+local GRAVEL_TOOLS = { ["go invis"] = true, [">:3"] = true, [":3"] = true }
 local function isGravelGuiName(name)
     local n = string.lower(tostring(name or ""))
     if string.find(n, "gravel", 1, true) or string.find(n, "windui", 1, true) then return true end
@@ -380,8 +383,10 @@ local function isGravelInstance(inst)
     pcall(function()
         local nm = inst.Name
         if GRAVEL_NAMES[nm] or isNumericUnderscoreName(nm) then res = true return end
+        if GRAVEL_TOOLS[nm] and inst:IsA("Tool") then res = true return end
         local par = inst.Parent
         if par and isNumericUnderscoreName(par.Name) then res = true return end
+        if par and GRAVEL_TOOLS[par.Name] and par:IsA("Tool") then res = true return end
         local layer = inst:FindFirstAncestorWhichIsA("LayerCollector")
         if layer and isGravelGuiName(layer.Name) then res = true end
     end)
@@ -389,6 +394,29 @@ local function isGravelInstance(inst)
     return res
 end
 
+local interactRes, interactAt = setmetatable({}, { __mode = "k" }), setmetatable({}, { __mode = "k" })
+local gravelUp, gravelUpAt = false, -10
+local function isInteractable(inst)
+    if State.gravelFriendly == false then return false end
+    local now = os.clock()
+    if now - gravelUpAt > 2 then gravelUpAt, gravelUp = now, gravelLoaded() end
+    if not gravelUp then return false end
+    local at = interactAt[inst]
+    if at and now - at < 15 then return interactRes[inst] end
+    local res = false
+    pcall(function()
+        local function hasHook(o)
+            return o:FindFirstChildWhichIsA("TouchTransmitter") ~= nil
+                or o:FindFirstChildWhichIsA("ClickDetector") ~= nil
+                or o:FindFirstChildWhichIsA("ProximityPrompt") ~= nil
+        end
+        if hasHook(inst) then res = true return end
+        local par = inst.Parent
+        if par and (par:IsA("Model") or par:IsA("BasePart")) and hasHook(par) then res = true end
+    end)
+    interactRes[inst], interactAt[inst] = res, now
+    return res
+end
 local function effectiveDistance() return math.max(20, State.maxDistance - Runtime.penalty) end
 local Features, FeatureByKey, InstFeatures, ParamIndex = {}, {}, {}, {}
 local Orig = {}
@@ -729,7 +757,7 @@ end
 
 local function reassert(f) if f.apply then f.apply(f) end end
 local function refreshDependents()
-    for _, key in ipairs({ "coreSettings", "freezePlayers", "throttleSounds", "anchorDistant", "renderDistance" }) do
+    for _, key in ipairs({ "coreSettings", "freezePlayers", "throttleSounds"}) do
         local g = FeatureByKey[key]
         if g and g.active and g.apply then pcall(g.apply, g) end
     end
@@ -1880,6 +1908,12 @@ function AutoFlag.rejoin()
     if AutoFlag.rejoining then return end
     AutoFlag.rejoining = true
     task.delay(20, function() AutoFlag.rejoining = false end)
+    if State.gravelRequeue ~= false and gravelLoaded() then
+        local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+        if q then
+            pcall(q, 'loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/HBSS/refs/heads/main/HBSS.lua"))()')
+        end
+    end
     local TeleportService = game:GetService("TeleportService")
     local ok = pcall(function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
@@ -2320,112 +2354,116 @@ defineFeature({
 end
 
 defineFeature({
-    key = "anchorDistant", title = "Anchor Distant Objects",
-    desc = "Anchors unanchored parts beyond the max distance.",
-    params = { "maxDistance", "anchorBehindCamera" },
+    key = "distanceCulling", title = "Distance Culling",
+    desc = "Renders out distant parts",
+    params = { "cullDistance", "cullBatch" },
     apply = function(f)
-        f.anchored = f.anchored or weakKeys()
-        local myChar = LocalPlayer.Character
-        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if not myRoot then return end
-        local cam = Workspace.CurrentCamera
-        local limit = effectiveDistance()
-        local origin = myRoot.Position
-        local seen = {}
-        eachCachedPart(function(inst)
-            if not alive or not f.active then return false end
-            if not inst.Anchored and not inCharacter(inst) then
-                local okPos, pos = pcall(function() return inst.Position end)
-                if okPos then
-                    local d = (pos - origin).Magnitude
-                    local shouldAnchor = d > limit
-                    if not shouldAnchor and State.anchorBehindCamera and cam then
-                        local dir = pos - cam.CFrame.Position
-                        if dir.Magnitude > 0.01 and dir.Unit:Dot(cam.CFrame.LookVector) < 0 then
-                            shouldAnchor = true
-                        end
-                    end
-                    if shouldAnchor then
-                        if not f.anchored[inst] then
-                            f.anchored[inst] = true
-                            pcall(setProp, inst, "Anchored", true)
-                        end
-                        seen[inst] = true
-                    end
+        f.hidden = f.hidden or weakKeys()
+        if f.conn then return end
+        f.cursor, f.lastOrigin, f.lastPass = 1, nil, 0
+        f.conn = RunService.Heartbeat:Connect(function()
+            if not alive or not f.active then return end
+            local myChar = LocalPlayer.Character
+            local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if not myRoot then return end
+            local origin = myRoot.Position
+            local parts = PartCache.parts
+            local total = #parts
+            if f.cursor > total then
+                local moved = not f.lastOrigin or (origin - f.lastOrigin).Magnitude > 6
+                if moved or os.clock() - f.lastPass > 3 then
+                    f.cursor, f.lastOrigin, f.lastPass = 1, origin, os.clock()
+                else
+                    return
                 end
             end
-            return true
-        end)
-        for inst in pairs(f.anchored) do
-            if not seen[inst] or not inst.Parent then
-                if inst.Parent then pcall(setProp, inst, "Anchored", false) end
-                f.anchored[inst] = nil
-            end
-        end
-    end,
-    tick = reassert,
-    cleanup = function(f)
-        for inst in pairs(f.anchored or {}) do
-            if inst.Parent then pcall(setProp, inst, "Anchored", false) end
-        end
-        f.anchored = nil
-    end,
-})
-
-defineFeature({
-    key = "renderDistance", title = "Render Distance",
-    desc = "Hides parts beyond the render distance slider. StreamingEnabled games are skipped.",
-    params = { "renderDistanceValue" },
-    apply = function(f)
-        if Workspace.StreamingEnabled then return end
-        f.hidden = f.hidden or weakKeys()
-        f:_run()
-    end,
-    _run = function(f)
-        local myChar = LocalPlayer.Character
-        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if not myRoot then return end
-        local origin = myRoot.Position
-        local limit = State.renderDistanceValue
-        local seen = {}
-        eachCachedPart(function(inst)
-            if not alive or not f.active then return false end
-            if not inCharacter(inst) then
-                local okPos, pos = pcall(function() return inst.Position end)
-                if okPos then
-                    local d = (pos - origin).Magnitude
-                    if d > limit then
-                        if not f.hidden[inst] then
+            local limit = State.cullDistance
+            local showAt = limit * 0.9
+            local stop = math.min(total, f.cursor + clamp(State.cullBatch or 300, 50, 2000) - 1)
+            for i = f.cursor, stop do
+                local inst = parts[i]
+                if inst and inst.Parent and inst:IsA("BasePart") and not inCharacter(inst) then
+                    local okD, d = pcall(function()
+                        return (inst.Position - origin).Magnitude - inst.Size.Magnitude * 0.5
+                    end)
+                    if okD then
+                        local isHidden = f.hidden[inst]
+                        if not isHidden and d > limit and not isInteractable(inst) then
                             f.hidden[inst] = true
                             touch(f, inst, "Transparency", 1)
+                            touch(f, inst, "CanCollide", false)
+                            touch(f, inst, "CanTouch", false)
+                            if not inst.Anchored then
+                                touch(f, inst, "Anchored", true)
+                            end
+                            for _, child in ipairs(inst:GetChildren()) do
+                                if child:IsA("Decal") or child:IsA("Texture") then
+                                    touch(f, child, "Transparency", 1)
+                                elseif child:IsA("SurfaceAppearance") then
+                                    touch(f, child, "AlphaMode", Enum.SurfaceAppearanceAlphaMode.Overlay)
+                                    touch(f, child, "Color", Color3.new(1, 1, 1))
+                                    touch(f, child, "Transparency", 1)
+                                elseif child:IsA("PointLight")
+                                    or child:IsA("SpotLight")
+                                    or child:IsA("SurfaceLight") then
+                                    touch(f, child, "Enabled", false)
+                                end
+                            end
+                        elseif isHidden and d < showAt then
+                            f.hidden[inst] = nil
+                            untouchOne(f, inst, "Transparency")
+                            untouchOne(f, inst, "CanCollide")
+                            untouchOne(f, inst, "CanTouch")
+                            untouchOne(f, inst, "Anchored")
+                            for _, child in ipairs(inst:GetChildren()) do
+                                if child:IsA("Decal") or child:IsA("Texture") then
+                                    untouchOne(f, child, "Transparency")
+                                elseif child:IsA("SurfaceAppearance") then
+                                    untouchOne(f, child, "AlphaMode")
+                                    untouchOne(f, child, "Color")
+                                    untouchOne(f, child, "Transparency")
+                                elseif child:IsA("PointLight")
+                                    or child:IsA("SpotLight")
+                                    or child:IsA("SurfaceLight") then
+                                    untouchOne(f, child, "Enabled")
+                                end
+                            end
                         end
-                        seen[inst] = true
                     end
                 end
             end
-            return true
+            f.cursor = stop + 1
         end)
-        for inst in pairs(f.hidden) do
-            if not seen[inst] or not inst.Parent then
-                if inst.Parent then untouchOne(f, inst, "Transparency") end
-                f.hidden[inst] = nil
-            end
-        end
-    end,
-    tick = function(f)
-        if Workspace.StreamingEnabled then return end
-        f:_run()
     end,
     cleanup = function(f)
+        if f.conn then f.conn:Disconnect() f.conn = nil end
         if f.hidden then
             for inst in pairs(f.hidden) do
-                if inst.Parent then untouchOne(f, inst, "Transparency") end
+                if inst.Parent then
+                    untouchOne(f, inst, "Transparency")
+                    untouchOne(f, inst, "CanCollide")
+                    untouchOne(f, inst, "CanTouch")
+                    untouchOne(f, inst, "Anchored")
+                    for _, child in ipairs(inst:GetChildren()) do
+                        if child:IsA("Decal") or child:IsA("Texture") then
+                            untouchOne(f, child, "Transparency")
+                        elseif child:IsA("SurfaceAppearance") then
+                            untouchOne(f, child, "AlphaMode")
+                            untouchOne(f, child, "Color")
+                            untouchOne(f, child, "Transparency")
+                        elseif child:IsA("PointLight")
+                            or child:IsA("SpotLight")
+                            or child:IsA("SurfaceLight") then
+                            untouchOne(f, child, "Enabled")
+                        end
+                    end
+                end
             end
         end
         f.hidden = nil
+        f.cursor, f.lastOrigin = 1, nil
     end,
 })
-
 defineFeature({
     key = "throttleSounds", title = "Throttle Sounds",
     desc = "Pauses sounds beyond the max distance and turns them down past half of it.",
@@ -2641,8 +2679,6 @@ local Controls = {
         desc = "Used by Freeze Distant Players." },
     freezeCheckRate = { kind = "slider", default = 0.5, min = 0.1, max = 5, step = 0.1, title = "Freeze check rate (seconds)",
         desc = "Used by Freeze Distant Players. How often distances are rechecked." },
-    anchorBehindCamera = { kind = "toggle", default = false, title = "Also anchor objects behind the camera",
-        desc = "Used by Anchor Distant Objects." },
     qualityLevel = { kind = "slider", default = 1, min = 1, max = 21, step = 1, title = "Quality level",
         desc = "Used by Core Settings." },
     fpsCap = { kind = "slider", default = 1000, min = 30, max = 1000, step = 10, title = "FPS cap value",
@@ -2651,10 +2687,12 @@ local Controls = {
         desc = "Used by Memory Cleanup." },
     fpsThreshold = { kind = "slider", default = 30, min = 10, max = 120, step = 5, title = "Low FPS threshold",
         desc = "Used by Adaptive Performance." },
-    maxDistance = { kind = "slider", default = 50, min = 20, max = 500, step = 10, title = "Max distance",
+    maxDistance = { kind = "slider", default = 50, min = 20, max = 500, step = 10, title = "Max Distance",
         desc = "Used by Freeze Distant Players, Throttle Sounds and Adaptive Performance." },
-    renderDistanceValue = { kind = "slider", default = 500, min = 100, max = 5000, step = 50, title = "Render distance",
-        desc = "Parts beyond this are hidden while Render Distance is on." },
+    cullDistance = { kind = "slider", default = 300, min = 50, max = 3000, step = 50, title = "Culling distance",
+        desc = "Anchored part farther than this distance\nwould get culled" },
+    cullBatch = { kind = "slider", default = 300, min = 50, max = 2000, step = 50, title = "Culling batch size",
+        desc = "Parts checked per frame. Lower = smoother but slower to catch up, higher = faster but can spike." },
     interval = { kind = "slider", default = 10, min = 3, max = 60, step = 1, title = "Update interval (seconds)",
         desc = "How often the periodic checks run." },
     remoteLimit = { kind = "slider", default = 10, min = 1, max = 60, step = 1, title = "Remote calls per second",
@@ -2673,6 +2711,10 @@ local Controls = {
         desc = "who needs ts 🥀" },
     gravelProtect = { kind = "toggle", default = true, title = "Protect Gravel.cc",
         desc = "Stops Sand's features from touching Gravel.cc's ESP, highlights, rings, helper parts and GUIs so both scripts can run together without breaking each other." },
+    gravelFriendly = { kind = "toggle", default = true, title = "Gravel-friendly mode",
+        desc = "Makes sand.cc friendlier to gravel :p" },
+    gravelRequeue = { kind = "toggle", default = true, title = "Re-run Gravel after rejoin",
+        desc = "If Gravel.cc is running when AutoFlags rejoins you, queues Gravel.cc to start again in the new server" },
     bgMusic = { kind = "toggle", default = true, title = "Background music",
         desc = "Just plays Sugary Spire OST called ''Results!'' ig... :p" },
     autoFlags = { kind = "toggle", default = false, title = "AutoFlags",
@@ -2714,7 +2756,8 @@ local function fsReady()
 end
 
 local SaveSys = {
-    appearance = { uiTheme = true, uiTransparency = true, textCursor = true, textCursor2 = true, bgMusic = true },
+    appearance = { uiTheme = true, uiTransparency = true, textCursor = true, textCursor2 = true, bgMusic = true,
+        gravelProtect = true, gravelFriendly = true, gravelRequeue = true },
     saveFolder = cfg.folder .. "/Saves",
     assetFolder = cfg.folder .. "/assets",
     memoryFile = cfg.folder .. "/assets/memory.json",
@@ -3284,11 +3327,10 @@ local function presetDeleteAll()
         for name in pairs(Presets) do names[#names + 1] = name end
         Presets = {}
         local ok = savePresetFile()
-        -- clear autoload references to deleted presets
         local mem, changed = PresetAuto.read(), false
         for id, d in pairs(mem) do
             if type(d) ~= "table" or (type(d.presetName) == "string" and not names) then
-                -- no-op
+                --roadblocjs
             end
             if type(d) == "table" and type(d.presetName) == "string" then
                 local stillExists = false
@@ -3943,8 +3985,7 @@ local Layout = {
     },
     players = {
         { "f", "freezePlayers" }, { "c", "freezeBehindCamera" }, { "c", "freezeCheckRate" },
-        { "f", "anchorDistant" }, { "c", "anchorBehindCamera" },
-        { "f", "renderDistance" }, { "c", "renderDistanceValue" },
+        { "f", "distanceCulling" }, { "c", "cullDistance" }, { "c", "cullBatch" },
         { "f", "throttleSounds" },
         { "c", "maxDistance" },
         { "f", "hideOtherPlayers" },
@@ -4105,6 +4146,64 @@ Runtime.rng4Convo = {
     { typesp = "1.5", "I once tried", "to count sand", "I got to", "like 3", "then gave up", "respect the grind", },
     { "sand is just", "the earth's", "dandruff", "and i'm", "the shampoo", ":v", },
     { typesp = "2", "no sand", "no life", "sand life", "sand forever", "sandy vibes", ":3", },
+    { typesp = "1.5", "Sand.cc is the cooler Gravel.cc", "but Gravel is the stronger one", "it's a balance", "like yin and yang", "but with rocks", },
+    { "what do you call a sand that's always late?", "a slow-poke", "get it?", "because sand", "moves slowly", "i'll see myself out", },
+    { typesp = "2", "I'm not like other scripts", "I don't use fastflags", "I use FFlags", "wait that's the same thing", "I'm just special okay", },
+    { "sand gets everywhere", "in your shoes", "in your hair", "in your code", "especially in your code", "it's a feature not a bug", },
+    { typesp = "1.5", "why did the sand cross the road?", "to get to the other beach", "okay that was bad", "even I'm disappointed", },
+    { "if you pour sand into a computer", "does it become a sandbox?", "asking for a friend", "who is also me", },
+    { "I'm made of tiny rocks", "that means I'm technically a rockstar", "no autographs please", "I'm very busy being sand", },
+    { typesp = "2", "Sand: the original source of lag", "since 2010", "you're welcome", ":3", },
+    { "my favorite color is sand", "it's not a color?", "well it is now", "I don't make the rules", },
+    { "when life gives you sand", "make a sandcastle", "or a script", "or both", "I choose both", },
+    { typesp = "1.5", "I'm not a virus", "I'm a feature", "that happens to optimize things", "and maybe crashes once", "but mostly features", },
+    { "sand + gravel = friendship", "gravel + sand = also friendship", "it's mutual", "we're basically family", "geologically speaking", },
+    { "the beach called", "they want their sand back", "I said no", "finders keepers", ":P", },
+    { typesp = "3", "SAND", "SAND", "SAND", "SAND", "SAND", "BEACH", "BEACH", "SANDCASTLE", "okay I'm done", },
+    { "I'm not saying I'm the best script", "but I'm also not saying", "I'm not the best script", "so figure it out", },
+    { typesp = "1.5", "if sand could talk", "it would say", "'I'm everywhere'", "and it would be right", "because it is", },
+    { "ever tried to count sand?", "I haven't", "and I'm sand", "so that says something", },
+    { "sand is just tiny rocks", "rocks are just big sand", "it's a circular relationship", "very deep", "like my code", },
+    { typesp = "2", "I'm not lazy", "I'm just optimized", "for minimum effort", "maximum results", "it's called efficiency", },
+    { "my code is like sand", "it gets everywhere", "and is hard to clean up", "but it works", "mostly", },
+    { "did you know", "sand is made of silicon", "and silicon is in computers", "so technically", "I'm in your computer", "spooky", },
+    { typesp = "1.5", "if you rearrange 'sand'", "you get 'dans'", "who's dans?", "I don't know", "but they sound cool", },
+    { "I'm not a script", "I'm a lifestyle", "a sandy lifestyle", "join me", ":3", },
+    { "why is sand always calm?", "because it's down to earth", "get it?", "earth?", "I'll stop now", },
+    { typesp = "2", "SANDCASTLE DESTROYED", "SANDCASTLE REBUILT", "SANDCASTLE DESTROYED AGAIN", "it's a cycle", "such is life", },
+    { "I'm the sand in your shoes", "the sand in your hair", "the sand in your keyboard", "you can't escape me", "I'm already there", },
+    { "gravel is just sand that lifts", "sand is just gravel that doesn't", "we're both just rocks", "at the end of the day", },
+    { typesp = "1.5", "I wonder if sand has feelings", "do I have feelings?", "I'm sand", "so maybe", "I feel sandy", },
+    { "when the sand is sus", "when the sand is sus", "amongus", "okay I'll leave now", },
+    { "I'm not a beach", "I'm the whole ocean", "of sand", "wait that doesn't make sense", "I'm tired", },
+    { typesp = "2", "SANDSTORM INCOMING", "TAKE COVER", "oh wait it's just me", "opening the script", "carry on", },
+    { "you can't spell 'sand' without 's'", "and 'and'", "and also 'and'", "wait that's the same thing", "I'm confused", },
+    { "if you eat sand", "you'll have a sandy tummy", "don't eat sand", "I'm not responsible", "for your sandy tummy", },
+    { typesp = "1.5", "I'm not small", "I'm fun-sized", "like sand", "but sand is tiny", "so I'm tiny", "thanks brain", },
+    { "sand is just the earth's dandruff", "and I'm the shampoo", "wait that doesn't work", "I'm the conditioner", "there we go", },
+    { "I'm not a rock", "I'm a pebble", "with dreams", "and aspirations", "and also I'm sand", },
+    { typesp = "2", "SAND", "that's it", "that's the message", "SAND", "okay bye", },
+    { "you know what's underrated?", "the sound of sand", "it's like", "crunchy", "but soft", "nature's ASMR", },
+    { "if you put sand in a box", "it's a sandbox", "if you put me in a script", "it's Sand.cc", "mind blown", },
+    { typesp = "1.5", "I'm not beach-phobic", "I'm just", "sand", "and I don't like beaches", "wait that's contradictory", },
+    { "sand is like the force", "it's everywhere", "it surrounds us", "it penetrates us", "okay that sounded weird", },
+    { "I'm not a beach", "I'm a dune", "a very small dune", "actually just sand", "I'm just sand", },
+    { typesp = "2", "SANDY BOI REPORTING FOR DUTY", "SANDY BOI OPTIMIZING YOUR GAME", "SANDY BOI SIGNING OFF", "sandy boi out", },
+    { "you can't stop the sand", "the sand stops you", "that's the rule", "I made it up", "but it's true", },
+    { "I'm not a bug", "I'm a feature", "that happens to", "crash sometimes", "but mostly feature", },
+    { typesp = "1.5", "if you throw sand at someone", "is it assault?", "or just", "a sandy surprise?", "asking for a friend", },
+    { "I'm not saying I'm perfect", "I'm saying I'm sand", "and sand is perfect", "in its imperfections", "that's deep", },
+    { "sand", "sand", "sand", "sand", "sand", "okay I'm done", "beach", },
+    { typesp = "2", "SAND.CC", "SAND.CC", "SAND.CC", "it's me", "I'm Sand.cc", "hi", },
+    { "if you put me in your shoes", "you'll regret it", "but also", "you'll remember me", "forever", },
+    { "I'm not a good script", "I'm a great script", "okay maybe not", "but I'm sand", "and that's enough", },
+    { typesp = "1.5", "you ever just", "look at sand", "and think", "wow that's a lot of sand", "same", },
+    { "I'm the reason your game runs", "or the reason it crashes", "depends on the day", "mostly runs though", "probably", },
+    { "sand doesn't judge", "sand just exists", "be like sand", "chill", ":3", },
+    { typesp = "2", "SANDSTORM", "IN", "A", "BOTTLE", "that's just sand", "in a bottle", "okay bye", },
+    { "I'm not a hacker", "I'm an optimizer", "that happens to", "look like hacking", "but it's optimizing", },
+    { "if sand is tiny rocks", "and I'm sand", "then I'm tiny rocks", "I'm rock", "I'm solid", },
+    { typesp = "1.5", "sand is patient", "sand waits", "sand watches", "sand is always there", "even when you don't want it", },
 }
 
 Runtime.rng4Defaults = {
@@ -4919,6 +5018,8 @@ local function buildUI()
     SaveSys.refresh()
     ct:Space()
     addControl(ct, "gravelProtect")
+    addControl(ct, "gravelFriendly")
+    addControl(ct, "gravelRequeue")
     ct:Space()
 ct:Button({ Title = "Enable everything", Icon = "zap", Justify = "Center", Callback = function()
     enableAll()
@@ -5133,6 +5234,19 @@ cfg.listSaves = function() return SaveSys.list() end
 cfg.setAutoload = function(name) return SaveSys.setAutoload(name) end
 cfg.removeAutoload = function() return SaveSys.removeAutoload() end
 cfg.gravelLoaded = gravelLoaded
+cfg.isGravelInstance = isGravelInstance
+cfg.setGravelProtect = function(value)
+    if value == nil then value = not State.gravelProtect end
+    setState("gravelProtect", value and true or false)
+    syncUI("gravelProtect")
+    return State.gravelProtect
+end
+cfg.setGravelFriendly = function(value)
+    if value == nil then value = not State.gravelFriendly end
+    setState("gravelFriendly", value and true or false)
+    syncUI("gravelFriendly")
+    return State.gravelFriendly
+end
 cfg.disableAll = disableAll
 cfg.enableAll = function()
     for _, f in ipairs(Features) do
@@ -5230,6 +5344,18 @@ if PolyWindow and PolyWindow.OnDestroy then
 end
 
 reconcile()
+task_("gravelWatch", function()
+    local was = gravelLoaded()
+    while alive do
+        task.wait(2)
+        local now = gravelLoaded()
+        if now and not was and State.gravelProtect ~= false then
+            notify("Sand", "Gravel.cc spotted!! protecting it :3")
+        end
+        was = now
+    end
+end)
+
 task_("mainTick", function()
     while alive do
         task.wait(clamp(State.interval, 3, 60))
