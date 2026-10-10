@@ -2275,6 +2275,53 @@ defineFeature({
 })
 
 defineFeature({
+    key = "antiKick", title = "Client AntiKick",
+    desc = "Can't stop real server kicks, only localscripts being evil :p",
+    default= true,
+    supported = function()
+        return type(hookmetamethod) == "function" and type(hookfunction) == "function"
+            and type(newcclosure) == "function" and type(getnamecallmethod) == "function"
+    end,
+    apply = function(f)
+        local ak = env.__SandAntiKick
+        if type(ak) ~= "table" then
+            ak = { enabled = false }
+            env.__SandAntiKick = ak
+        end
+        ak.enabled = true
+        if ak.installed then return end
+        local okNc, oldNamecall = pcall(hookmetamethod, game, "__namecall", newcclosure(function(...)
+            if ak.enabled then
+                local method = getnamecallmethod()
+                if (method == "Kick" or method == "kick") and select(1, ...) == Players.LocalPlayer then
+                    return nil
+                end
+            end
+            return ak.namecall(...)
+        end))
+        if okNc then ak.namecall = oldNamecall end
+        local okK, oldKick = pcall(hookfunction, Players.LocalPlayer.Kick, newcclosure(function(self, ...)
+            if ak.enabled and self == Players.LocalPlayer then
+                return nil
+            end
+            return ak.kick(self, ...)
+        end))
+        if okK then ak.kick = oldKick end
+        if not okNc and not okK then
+            warnf("[AntiKick] couldn't hook Kick in this executor :(")
+            return
+        end
+        ak.namecall = ak.namecall or function(...) return nil end
+        ak.kick = ak.kick or function() end
+        ak.installed = true
+    end,
+    cleanup = function(f)
+        local ak = env.__SandAntiKick
+        if type(ak) == "table" then ak.enabled = false end
+    end,
+})
+
+defineFeature({
     key = "fpsCounter", title = "FPS Counter",
     desc = "Small FPS label in the top-left corner.",
     apply = function(f)
@@ -3062,7 +3109,7 @@ end
 local Controls = {
     greyboxKeywords = { kind = "input", multiline = true, default = gkeyword, title = "Grey-box keywords",
         desc = "Comma separated. Part names containing any of these get flattened.", placeholder = "chair, table, ..." },
-    textureKeywords = { kind = "input", default = "sign, ui, hud, menu, button, fence", title = "Important texture keywords",
+    textureKeywords = { kind = "input", multiline= true, default = "sign, ui, hud, menu, button, fence", title = "Important texture keywords",
         desc = "Comma separated. Used when \"Keep important textures\" is on.", placeholder = "sign, ui, ..." },
     keepImportantTextures = { kind = "toggle", default = false, title = "Keep important textures",
         desc = "Hide Textures skips decals whose name (or parent's name) matches the keywords." },
@@ -4480,6 +4527,7 @@ local Layout = {
         { "f", "silenceAmbientSound" },
         { "f", "noCharacterSounds" },
         { "f", "antiAFK" },
+        { "f", "antiKick" },
         { "f", "disableTouchTransparency" },
     },
 }
