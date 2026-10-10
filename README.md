@@ -162,6 +162,7 @@ A quick-reference of features that Sand.cc has :p
 - **Mute Ambient Sounds** - Mutes ambient SoundGroups and effects from SoundService
 - **Mute Character Sounds** - Mutes footsteps and other sounds inside characters
 - **Anti-AFK** - Prevents the 20-minute idle disconnect
+- **Client AntiKick** - Blocks localscript kicks (needs hookmetamethod + hookfunction)
 - **Force No Transparency** - Forces full opacity on every base part
 
 ---
@@ -387,7 +388,7 @@ SandCC.PolyWindow       -- the WindUI window object (if one was created)
   1. [YouTube; Main Channel](https://youtube.com/@gpssickle?si=9bBIhhY7-nt2Ot7J)
   2. [YouTube; Second Channel](https://www.youtube.com/@gpszickle)
   3. [RScripts](rscripts.net/@Gpssickle)
-  4. [Scriptblox](https://scriptblox.com/u/Gpssickle)
+  4. [ScriptBlox](https://scriptblox.com/u/Gpssickle)
   5. [Roblox](https://www.roblox.com/users/8517361356/profile)
 </details>
 
