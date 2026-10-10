@@ -5763,6 +5763,11 @@ cfg.deleteSave = function(name) return SaveSys.delete(name) end
 cfg.listSaves = function() return SaveSys.list() end
 cfg.setAutoload = function(name) return SaveSys.setAutoload(name) end
 cfg.removeAutoload = function() return SaveSys.removeAutoload() end
+cfg.graySkyId = "rbxassetid://114666145996289"
+cfg.graySkyActive = function()
+    local f = FeatureByKey and FeatureByKey.graySky
+    return (f ~= nil and f.active == true and State.graySky == true) and true or false
+end
 cfg.gravelLoaded = gravelLoaded
 cfg.isGravelInstance = isGravelInstance
 cfg.setGravelProtect = function(value)
