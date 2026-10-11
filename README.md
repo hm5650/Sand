@@ -35,7 +35,7 @@ Raw Loadstring:
 *(Cached by GitHub.)*
 ```lua
 local SandCC = loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/Sand/main/Sand.lua"))({
-    createwindui = true, -- true/false     / allow creating Wind UI (you'll need to rejoin and set the boolean to 'true' and rejoin if you need to change something)
+    createwindui = true, -- true/false     / allow creating Wind UI (set the boolean to 'true' and rejoin if you need to change something or use it's public API found in the README.md)
     autoload = true, -- true/false            / allow autoloading
     autosave = true, -- true/false           / allow autosaving
     autoflag = false, -- true/false        / allow auto rejoining whenever a flag is applied
