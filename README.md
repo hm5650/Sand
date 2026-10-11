@@ -4,8 +4,6 @@
 
 [Gravel](https://github.com/hm5650/HBSS/blob/main/README.md)
 
----
-
 # Sand.cc
 
 <p align="center">
