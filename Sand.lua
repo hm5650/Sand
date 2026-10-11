@@ -362,6 +362,7 @@ end
 local GRAVEL_NAMES = {
     PlayerHighlight = true, DesyncWeld = true, ProxyWeld = true,
     ESPLabel = true, ESPBox = true, HealthBG = true, HealthFill = true, HeadDot = true,
+    OffscreenArrow = true, OffscreenArrowDist = true,
     FOVCircle = true, RingFrame = true, TriggerFOVRing = true, QTContainer = true, TouchFeedback = true,
     StickZone = true, RingGrabPad = true, RingHolder = true, EditOverlay = true, EditHint = true, EditDone = true,
     pneumonoultramicroscopicsilicovolcanoconiosis = true, Hippopotomonstrosesquippedaliophobia = true,
