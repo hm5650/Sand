@@ -1,8 +1,10 @@
-*Made by Gpssickle :D*
+*by Gpssickle! :D*
 
 ---
 
 [Gravel](https://github.com/hm5650/HBSS/blob/main/README.md)
+
+---
 
 # Sand.cc
 
