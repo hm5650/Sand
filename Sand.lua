@@ -61,6 +61,7 @@ local passed = ...
 local cfg = (type(passed) == "table" and passed) or (type(env.cfg) == "table" and env.cfg) or {}
 if cfg.createwindui == nil then cfg.createwindui = true end
 if cfg.autoload == nil then cfg.autoload = true end
+if cfg.autosave == nil then cfg.autosave = true end
 cfg.folder = cfg.folder or "Sand.cc"
 local cfgAutoFlag = nil
 if type(cfg.autoflag) == "boolean" then cfgAutoFlag = cfg.autoflag end
@@ -3243,6 +3244,15 @@ function SaveSys.scheduleAppearance()
     end)
 end
 
+function SaveSys.scheduleAutosave()
+    if not (alive and cfg.autosave) then return end
+    SaveSys.autoToken = (SaveSys.autoToken or 0) + 1
+    local mine = SaveSys.autoToken
+    task.delay(1.5, function()
+        if mine == SaveSys.autoToken and alive and SaveSys.writeAutosave then SaveSys.writeAutosave() end
+    end)
+end
+
 local WindUI, PolyWindow
 local Elements = {}
 
@@ -3283,6 +3293,7 @@ local function setState(key, value, silent)
         paramChanged(key)
     end
     if not silent and SaveSys.appearance[key] then SaveSys.scheduleAppearance() end
+    if not silent then SaveSys.scheduleAutosave() end
 end
 
 local function syncAllUI()
@@ -3983,6 +3994,7 @@ local function resetDefaults()
     applyChanges(changed)
     syncAllUI()
     SaveSys.scheduleAppearance()
+    SaveSys.scheduleAutosave()
 end
 
 do
@@ -4444,7 +4456,57 @@ do
         end
         return n
     end
+    function S.writeAutosave()
+        if not fsReady() then return false end
+        S.ensureFolders()
+        local conf = {}
+        for key in pairs(Defs) do conf[key] = State[key] end
+        local ok, err = pcall(function()
+            writefile(S.legacyFile, HttpService:JSONEncode({ version = 1, savedAt = os.time(), config = conf }))
+        end)
+        if not ok then warnOnce("couldn't write " .. S.legacyFile .. ": " .. tostring(err)) end
+        return ok
+    end
+
+    function S.ensureAutosave()
+        if not (cfg.autosave and fsReady()) then return false end
+        if isfile(S.legacyFile) then
+            local ok, data = pcall(function() return HttpService:JSONDecode(readfile(S.legacyFile)) end)
+            if ok and type(data) == "table" then return true end
+        end
+        return S.writeAutosave()
+    end
+
+    function S.loadAutosave()
+        if not fsReady() then
+            notify("Sand", "This executor has no file functions, can't load :(")
+            return false
+        end
+        if not isfile(S.legacyFile) then
+            notify("Sand", "No autosave.json found in the " .. cfg.folder .. " folder :o")
+            return false
+        end
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(S.legacyFile)) end)
+        if not ok or type(data) ~= "table" then
+            notify("Sand", "autosave.json is corrupted or unreadable :c")
+            return false
+        end
+        local conf = (type(data.config) == "table" and data.config) or data
+        local n = applyConf(conf, true)
+        for key in pairs(APP) do
+            local v = coerce(key, conf[key])
+            if v ~= nil then
+                n = n + 1
+                setState(key, v, true)
+            end
+        end
+        syncAllUI()
+        notify("Sand", "Loaded autosave.json (" .. n .. " settings) :3", 4)
+        return true
+    end
+
     function S.migrateLegacy()
+        if cfg.autosave then return end
         if not (fsReady() and isfile(S.legacyFile)) then return end
         local ok, data = pcall(function() return HttpService:JSONDecode(readfile(S.legacyFile)) end)
         if ok and type(data) == "table" then
@@ -5531,6 +5593,15 @@ local function buildUI()
         Justify = "Center",
         Callback = function() SaveSys.load(SaveSys.query) end,
     })
+    if cfg.autosave then
+        ct:Button({
+            Title = "Load Autosave",
+            Desc = "Loads autosave.json from the Sand.cc folder",
+            Icon = "file-down",
+            Justify = "Center",
+            Callback = function() SaveSys.loadAutosave() end,
+        })
+    end
     ct:Button({
         Title = "Delete",
         Desc = "Yeets the save forever\n(match needs to be solid)",
@@ -5846,6 +5917,7 @@ local autoloaded = nil
 if fsReady() then
     pcall(SaveSys.migrateLegacy)
     pcall(SaveSys.loadAppearance, false)
+    pcall(SaveSys.ensureAutosave)
     if cfg.autoload ~= false then
         local okA, res = pcall(SaveSys.startupAutoload)
         if okA then autoloaded = res end
