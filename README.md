@@ -212,6 +212,7 @@ A quick-reference of features that Sand.cc has :p
 - **Save Name / Search Input** - Type a name to save, or part of one to find it (fuzzy matching)
 - **Save/Overwrite** - Saves your settings under that name (blank = auto-named from the game)
 - **Load** - Fuzzy finds the best match and applies it
+- **Load Autosave** - Loads your current autosave
 - **Delete** - Yeets the save forever (exact match required)
 - **Delete All Saves** - Permanently deletes EVERY save (with multi-step confirmation popups)
 - **Autoload on Game** - Loads that save by itself whenever you execute Sand in this game
