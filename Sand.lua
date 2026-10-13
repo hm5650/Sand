@@ -2775,13 +2775,14 @@ defineFeature({
                 if isEffectCandidate(inst) then registerEffect(inst) end
             end)
         end
-
         f.conn = RunService.Heartbeat:Connect(function()
             if not alive or not f.active then return end
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            local origin = cam.CFrame.Position
             local myChar = LocalPlayer.Character
             local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if not myRoot then return end
-            local origin = myRoot.Position
+            local rootOrigin = myRoot and myRoot.Position or nil
             local limit = State.cullDistance
             local hysteresis = clamp(State.cullHysteresis or 0.15, 0.02, 0.5)
             local showAt = limit * (1 - hysteresis)
@@ -2809,16 +2810,21 @@ defineFeature({
                             anc = anc.Parent
                         end
                         if not skip then
-                            local okD, d = pcall(function()
-                                return (inst.Position - origin).Magnitude - inst.Size.Magnitude * 0.5
+                            local okD, dCam, dRoot = pcall(function()
+                                local halfSize = inst.Size.Magnitude * 0.5
+                                local camDist = (inst.Position - origin).Magnitude - halfSize
+                                local rootDist = rootOrigin and ((inst.Position - rootOrigin).Magnitude - halfSize) or math.huge
+                                return camDist, rootDist
                             end)
                             if okD then
+                                local insideCull = dCam <= limit or dRoot <= limit
+                                local insideShow = dCam <= showAt or dRoot <= showAt
                                 local isHidden = f.hidden[inst]
-                                if not isHidden and d > limit then
+                                if not isHidden and not insideCull then
                                     if not isInteractable(inst) then
                                         hidePart(inst)
                                     end
-                                elseif isHidden and d < showAt then
+                                elseif isHidden and insideShow then
                                     showPart(inst)
                                 end
                             end
@@ -4825,6 +4831,149 @@ local BGM = {
     bgmurl = "https://raw.githubusercontent.com/hm5650/Sand/main/assets/music/RESULTS.mp3",
 }
 
+Runtime.authortext = {
+    original = "[wtf is a Gpssickle]",
+    label = nil,
+    connection = nil,
+    glitchChars = {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "-", "_", "=", "+", "[", "]", "{", "}", "|", "\\", "/", "<", ">", "?", "~", "`", ":", ";", "\"", "'", ",", ".", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
+    cycleInterval = 4,
+    isTransitioning = false,
+}
+
+function Runtime.authortext.glitchify(text, intensity)
+    if subside_I_I_I_I_I_() then return text end
+    local at = Runtime.authortext
+    local result = {}
+    for i = 1, #text do
+        if math.random() < intensity then
+            result[i] = at.glitchChars[math.random(1, #at.glitchChars)]
+        else
+            result[i] = text:sub(i, i)
+        end
+    end
+    return table.concat(result)
+end
+
+function Runtime.authortext.getTutorial()
+    local key = PolyWindow and PolyWindow.ToggleKey
+    local keyName = "RightAlt"
+    if typeof(key) == "EnumItem" then
+        keyName = key.Name:gsub("([a-z])([A-Z])", "%1 %2")
+    elseif key then
+        keyName = tostring(key)
+    end
+    return "[Press " .. keyName .. " 2 OpenUI]"
+end
+
+function Runtime.authortext.setText(text)
+    local at = Runtime.authortext
+    if not at.label or not at.label.Parent then return end
+    if subside_I_I_I_I_I_() then return end
+    if at.connection then at.connection:Disconnect() at.connection = nil end
+    at.label.Text = text
+    at.connection = at.label:GetPropertyChangedSignal("Text"):Connect(function()
+        if at.label.Text == at.original then
+            task.defer(function()
+                if at.label and at.label.Parent and not subside_I_I_I_I_I_() then
+                    at.label.Text = text
+                end
+            end)
+        end
+    end)
+end
+
+function Runtime.authortext.transition(targetText, duration)
+    local at = Runtime.authortext
+    if at.isTransitioning then return end
+    at.isTransitioning = true
+    local startText = at.label and at.label.Text or at.original
+    local maxLen = math.max(#startText, #targetText)
+    local startTime = tick()
+    task.spawn(function()
+        while tick() - startTime < duration do
+            if not at.label or not at.label.Parent then break end
+            while subside_I_I_I_I_I_() do
+                task.wait(0.5)
+                if not at.label or not at.label.Parent then break end
+            end
+            local progress = (tick() - startTime) / duration
+            local result = {}
+            for i = 1, maxLen do
+                local targetChar = targetText:sub(i, i)
+                local charProgress = math.clamp((progress * 1.5) - (i / maxLen) * 0.5, 0, 1)
+                if i > #targetText then
+                    if charProgress < 0.5 and math.random() < 0.3 then
+                        result[i] = at.glitchChars[math.random(1, #at.glitchChars)]
+                    else
+                        result[i] = ""
+                    end
+                elseif charProgress >= 1 then
+                    result[i] = targetChar
+                elseif charProgress > 0.5 then
+                    result[i] = math.random() < 0.2 and at.glitchChars[math.random(1, #at.glitchChars)] or targetChar
+                elseif charProgress > 0.2 then
+                    result[i] = math.random() < 0.5 and at.glitchChars[math.random(1, #at.glitchChars)] or targetChar
+                else
+                    result[i] = math.random() < 0.7 and at.glitchChars[math.random(1, #at.glitchChars)] or (startText:sub(i, i) ~= "" and startText:sub(i, i) or "")
+                end
+            end
+            at.setText(table.concat(result))
+            task.wait(0.03)
+        end
+        at.setText(targetText)
+        at.isTransitioning = false
+    end)
+end
+
+function Runtime.authortext.start()
+    local at = Runtime.authortext
+    task.spawn(function()
+        local label = nil
+        local attempts = 0
+        while not label and attempts < 50 and alive do
+            task.wait(0.1)
+            attempts = attempts + 1
+            if PolyWindowRef and PolyWindowRef.UIElements and PolyWindowRef.UIElements.Main then
+                for _, d in ipairs(PolyWindowRef.UIElements.Main:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text:find("Gpssickle", 1, true) then
+                        label = d
+                        break
+                    end
+                end
+            end
+        end
+        if not label then
+            warnf("couldn't find author label for glitch effect :(")
+            return
+        end
+        at.label = label
+        at.original = label.Text
+        for i = 1, 8 do
+            if not label.Parent or not alive then return end
+            while subside_I_I_I_I_I_() do task.wait(0.5) end
+            at.setText(at.glitchify(at.original, (1 - i / 8) * 0.9))
+            task.wait(0.04)
+        end
+        at.setText(at.original)
+        task.spawn(function()
+            local showTutorial = false
+            while at.label and at.label.Parent and alive do
+                task.wait(at.cycleInterval)
+                if at.isTransitioning then continue end
+                local base = at.label.Text
+                for i = 1, math.random(3, 5) do
+                    if not at.label or not at.label.Parent or not alive then break end
+                    while subside_I_I_I_I_I_() do task.wait(0.5) end
+                    at.setText(at.glitchify(base, 0.4 + i * 0.1))
+                    task.wait(0.05)
+                end
+                showTutorial = not showTutorial
+                at.transition(showTutorial and at.getTutorial() or at.original, 0.6)
+            end
+        end)
+    end)
+end
+
 local function ensureBGMAsset()
     if not fsReady() then return nil end
     if type(getcustomasset) ~= "function" then return nil end
@@ -5285,13 +5434,14 @@ local function buildUI()
 
     PolyWindow = WindUI:CreateWindow({
         Title = "Sand.cc",
-        Author = "wtf is a Gpssickle",
+        Author = "[wtf is a Gpssickle]",
         Folder = "Sand.cc",
         IconSize = 45,
         Icon = "rbxassetid://130186106560596",
         NewElements = true,
         Size = windowSize,
         HideSearchBar = false,
+        ToggleKey = Enum.KeyCode.RightAlt,
         OpenButton = {
             Title = typesheet,
             CornerRadius = UDim.new(0, 8),
@@ -5304,10 +5454,16 @@ local function buildUI()
         Topbar = { Height = 44, ButtonsType = "Default"},
     })
     PolyWindowRef = PolyWindow
-
     applyTheme(State.uiTheme)
     applyTransparency(State.uiTransparency)
-
+    if cfg.createwindui ~= false then
+        task_("authorText", function()
+            task.wait(0.5)
+            if PolyWindowRef then
+                Runtime.authortext.start()
+            end
+        end)
+    end
     local optimization = PolyWindow:Section({ Title = "Optimization" })
     local Engine = PolyWindow:Section({ Title = "Engine" })
     local Sand = PolyWindow:Section({ Title = "Sand" })
@@ -5865,6 +6021,18 @@ local function unload()
     if Runtime.rng4FpsTag then
         pcall(function() Runtime.rng4FpsTag:Destroy() end)
         Runtime.rng4FpsTag = nil
+    end
+    do
+        local at = Runtime.authortext
+        if at then
+            if at.connection then
+                pcall(function() at.connection:Disconnect() end)
+                at.connection = nil
+            end
+            at.label = nil
+            at.isTransitioning = false
+            at.active = false
+        end
     end
     pcall(stopPartCache)
     if PolyWindow then pcall(function() PolyWindow:Destroy() end) end
