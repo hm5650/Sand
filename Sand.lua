@@ -5415,7 +5415,8 @@ end
 -- ui neuron activation starter
 local function buildUI()
     local ok, lib = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/hm5650/WindUI_-forked-/refs/heads/main/WindUI_forked.lua"))()
+        -- sand uses a forked ver of WindUI you can get org from here: https://github.com/Footagesus/WindUI/releases/latest/download/main.lua
     end)
     if not ok or type(lib) ~= "table" then
         warnf("couldn't load WindUI (" .. tostring(lib) .. "), continuing without a UI")
@@ -5436,6 +5437,9 @@ local function buildUI()
         Title = "Sand.cc",
         Author = "[wtf is a Gpssickle]",
         Folder = "Sand.cc",
+        RectCulling = true,
+        RectCullPadding = 40,
+        RectCullInterval = 0.06,
         IconSize = 45,
         Icon = "rbxassetid://130186106560596",
         NewElements = true,
